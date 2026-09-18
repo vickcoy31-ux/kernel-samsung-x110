@@ -1,23 +1,101 @@
+name: Build Samsung Galaxy Tab A9 Kernel
 
-name: Test Samsung X110 Build
-
-on:
+"on":
   workflow_dispatch:
   push:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test Workflow
+  build:
+    name: Build Kernel Image
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout kernel source
         uses: actions/checkout@v4
 
-      - name: Test GitHub Actions
+      - name: Inspect repository
         run: |
-          echo "YAML berhasil dibaca"
-          echo "GitHub Actions berjalan"
+          echo "Folder saat ini:"
+          pwd
+
+          echo "Isi repository:"
+          ls -la
+
+          echo "File kernel yang ditemukan:"
+          find . -maxdepth 4 -type f \
+            \( -name "Makefile" -o -name "*defconfig" \) \
+            | head -100
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc \
+            bison \
+            flex \
+            build-essential \
+            clang \
+            lld \
+            libssl-dev \
+            libelf-dev \
+            pahole \
+            cpio \
+            zip \
+            unzip \
+            python3 \
+            rsync \
+            git
+
+      - name: Check kernel source
+        run: |
+          if [ ! -f Makefile ]; then
+            echo "ERROR: Makefile tidak ada di folder utama."
+            echo "Kemungkinan source kernel berada di subfolder."
+            exit 1
+          fi
+
+      - name: Find defconfig
+        run: |
+          set -eux
+
+          DEFCONFIG="$(find arch/arm64/configs -type f \
+            \( -name "*gta9*defconfig" \
+            -o -name "*x110*defconfig" \
+            -o -name "*defconfig" \) \
+            | head -1)"
+
+          if [ -z "$DEFCONFIG" ]; then
+            echo "Defconfig tidak ditemukan."
+            find arch/arm64/configs -type f | head -100
+            exit 1
+          fi
+
+          DEFCONFIG_NAME="$(basename "$DEFCONFIG")"
+          echo "DEFCONFIG_NAME=$DEFCONFIG_NAME" >> "$GITHUB_ENV"
+          echo "Defconfig: $DEFCONFIG_NAME"
+
+      - name: Build Image
+        run: |
+          set -eux
+
+          make O=out ARCH=arm64 "$DEFCONFIG_NAME"
+
+          make -j"$(nproc)" \
+            O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1
+
+          test -f out/arch/arm64/boot/Image
+
+      - name: Upload Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-image
+          path: out/arch/arm64/boot/Image
+          if-no-files-found: error
