@@ -20,39 +20,28 @@ jobs:
       - name: Clone Toolchain & Source
         run: |
           echo "Mengunduh GCC Toolchain..."
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git -b lineage-18.1 toolchain-64 || true
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git -b lineage-18.1 toolchain-64
           
-          echo "Mengunduh Source Code Kernel Samsung X110..."
-          git clone --depth=1 https://github.com/vickcoy31-ux/kernel-samsung-x110.git -b main x110_source || true
-          # Jika source utama di atas kosong, kita siapkan direktori fallback agar make tidak error
-          mkdir -p kernel_source/arch/arm64/boot
+          echo "Mengunduh Source Code Kernel Samsung GTA9..."
+          git clone --depth=1 https://github.com/0xA11CE613/kernel_samsung_gta9.git kernel_source
 
       - name: Start Full Compilation
         run: |
-          echo "Memeriksa direktori source..."
-          if [ -d "x110_source/kernel_source" ]; then
-            cd x110_source/kernel_source
-          elif [ -d "kernel_source" ]; then
-            cd kernel_source
-          else
-            cd x110_source || exit 1
-          fi
-
+          cd kernel_source || exit 1
           echo "Mengatur environment compiler..."
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH="$(pwd)/../toolchain-64/bin:$PATH"
           export CROSS_COMPILE=aarch64-linux-android-
           
-          echo "Memulai proses build..."
-          make clean && make mrproper
-          make x110_defconfig || make defconfig
+          echo "Memulai konfigurasi kernel..."
+          make defconfig
+          
+          echo "Memproses kompilasi kernel (ini butuh waktu beberapa menit)..."
           make -j$(nproc) Image
 
       - name: Upload Final Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: samsung-x110-compiled-kernel
-          path: |
-            x110_source/arch/arm64/boot/Image
-            kernel_source/arch/arm64/boot/Image
+          path: kernel_source/arch/arm64/boot/Image
