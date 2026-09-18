@@ -27,14 +27,24 @@ jobs:
           echo "Mengunduh Source Code Kernel Samsung GTA9..."
           git clone --depth=1 https://github.com/0xA11CE613/kernel_samsung_gta9.git kernel_source
 
-      - name: Inject KernelSU
+      - name: Inject KernelSU (Manual Method)
         run: |
           cd kernel_source || exit 1
-          echo "Membersihkan folder KernelSU lama jika ada..."
+          echo "Membersihkan folder KernelSU lama..."
           rm -rf drivers/kernelsu
           
-          echo "Mengunduh source code KernelSU..."
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
+          echo "Mengunduh repository KernelSU..."
+          git clone --depth=1 https://github.com/tiann/KernelSU drivers/kernelsu
+          
+          echo "Menghubungkan KernelSU ke drivers/Kconfig..."
+          if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
+            echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+          fi
+          
+          echo "Menghubungkan KernelSU ke drivers/Makefile..."
+          if ! grep -q "kernelsu" drivers/Makefile; then
+            echo 'obj-y += kernelsu/' >> drivers/Makefile
+          fi
 
       - name: Start Full Compilation
         run: |
