@@ -1,82 +1,23 @@
 
-      # ==========================================
-      # 5. INTEGRATE RESUKISU
-      # ==========================================
-      - name: Integrate ReSukiSU
+name: Test Samsung X110 Build
+
+on:
+  workflow_dispatch:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test Workflow
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Test GitHub Actions
         run: |
-          set -eux
-
-          cd kernel_source
-
-          echo "=== Integrasi ReSukiSU ==="
-
-          # Bersihkan sisa integrasi sebelumnya
-          rm -rf KernelSU
-          rm -rf ReSukiSU
-          rm -f drivers/kernelsu
-
-          echo "=== Clone repository ReSukiSU ==="
-
-          git clone --depth=1 \
-            https://github.com/ReSukiSU/ReSukiSU.git \
-            ReSukiSU
-
-          echo "=== Cek struktur repository ==="
-
-          find ReSukiSU/kernel \
-            -maxdepth 2 \
-            -type f \
-            -name Kconfig \
-            -print
-
-          find ReSukiSU/kernel \
-            -maxdepth 2 \
-            -type f \
-            -name Makefile \
-            -print
-
-          echo "=== Memeriksa file kernel ==="
-
-          test -f ReSukiSU/kernel/Kconfig
-          test -f ReSukiSU/kernel/Makefile
-
-          echo "=== Membuat symlink ==="
-
-          ln -s ../ReSukiSU/kernel drivers/kernelsu
-
-          echo "=== Memeriksa symlink ==="
-
-          ls -ld drivers/kernelsu
-
-          readlink -f drivers/kernelsu
-
-          test -f drivers/kernelsu/Kconfig
-          test -f drivers/kernelsu/Makefile
-
-          echo "Kconfig ReSukiSU ditemukan."
-
-          echo "=== Menambahkan Makefile ==="
-
-          if ! grep -qF 'obj-$(CONFIG_KSU) += kernelsu/' \
-              drivers/Makefile; then
-
-            printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' \
-              >> drivers/Makefile
-          fi
-
-          echo "=== Menambahkan Kconfig ==="
-
-          if ! grep -qF 'source "drivers/kernelsu/Kconfig"' \
-              drivers/Kconfig; then
-
-            printf '\nsource "drivers/kernelsu/Kconfig"\n' \
-              >> drivers/Kconfig
-          fi
-
-          echo "=== Verifikasi akhir ==="
-
-          grep -nF 'kernelsu' drivers/Makefile
-
-          grep -nF 'drivers/kernelsu/Kconfig' drivers/Kconfig
-
-          echo "=== ReSukiSU berhasil diintegrasikan ==="
+          echo "YAML berhasil dibaca"
+          echo "GitHub Actions berjalan"
