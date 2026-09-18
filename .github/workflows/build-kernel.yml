@@ -25,12 +25,14 @@ jobs:
       - name: Clone Source Code
         run: |
           echo "Mengunduh Source Code Kernel Samsung GTA9..."
-          git clone --depth=1 https://github.0xA11CE613/kernel_samsung_gta9.git kernel_source || \
           git clone --depth=1 https://github.com/0xA11CE613/kernel_samsung_gta9.git kernel_source
 
       - name: Inject KernelSU
         run: |
           cd kernel_source || exit 1
+          echo "Membersihkan folder KernelSU lama jika ada..."
+          rm -rf drivers/kernelsu
+          
           echo "Mengunduh repository KernelSU..."
           git clone --depth=1 https://github.com/tiann/KernelSU drivers/kernelsu
           
@@ -62,7 +64,8 @@ jobs:
           fi
           
           echo "Memastikan opsi KernelSU aktif di .config..."
-          scripts/config --enable CONFIG_KSU || true
+          chmod +x scripts/config || true
+          scripts/config --enable CONFIG_KSU || echo "CONFIG_KSU=y" >> .config
           
           echo "Memproses kompilasi kernel dengan KernelSU..."
           make -j$(nproc) CC=clang Image
