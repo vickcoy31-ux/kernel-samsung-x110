@@ -28,20 +28,20 @@ jobs:
       - name: Start Full Compilation
         run: |
           cd kernel_source || exit 1
-          echo "Mengatur environment compiler..."
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH="$(pwd)/../toolchain-64/bin:$PATH"
           export CROSS_COMPILE=aarch64-linux-android-
           
-          echo "Memulai konfigurasi kernel..."
-          make defconfig
+          echo "Mencari file defconfig GTA9..."
+          DEFCONFIG_FILE=$(ls arch/arm64/configs/ | grep -iE 'gta9|x110' | head -n 1)
+          if [ -n "$DEFCONFIG_FILE" ]; then
+            echo "Menggunakan config: $DEFCONFIG_FILE"
+            make $DEFCONFIG_FILE
+          else
+            echo "Menggunakan defconfig fallback..."
+            make defconfig
+          fi
           
-          echo "Memproses kompilasi kernel (ini butuh waktu beberapa menit)..."
+          echo "Memproses kompilasi kernel..."
           make -j$(nproc) Image
-
-      - name: Upload Final Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: samsung-x110-compiled-kernel
-          path: kernel_source/arch/arm64/boot/Image
