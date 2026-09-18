@@ -1,0 +1,219 @@
+
+name: Build Samsung X110 ReSukiSU Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile ReSukiSU Kernel Image
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      # 1. Checkout
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. Dependencies
+      - name: Install Dependencies
+        run: |
+          set -eux
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            build-essential \
+            bc \
+            bison \
+            flex \
+            libssl-dev \
+            libelf-dev \
+            libncurses-dev \
+            gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi \
+            git \
+            curl \
+            wget \
+            python3 \
+            rsync \
+            cpio \
+            lz4 \
+            device-tree-compiler
+
+      # 3. Clang
+      - name: Download Proton Clang
+        run: |
+          set -eux
+
+          git clone --depth=1 \
+            https://github.com/kdrag0n/proton-clang.git \
+            clang
+
+          test -x clang/bin/clang
+
+          clang/bin/clang --version
+
+      # 4. Kernel Source
+      - name: Clone Samsung GTA9 Kernel
+        run: |
+          set -eux
+
+          git clone --depth=1 \
+            https://github.com/0xA11CE613/kernel_samsung_gta9.git \
+            kernel_source
+
+          cd kernel_source
+
+          git log -1 --oneline
+
+          test -f Makefile
+          test -d arch/arm64
+          test -d drivers
+
+      # 5. Integrate ReSukiSU
+      - name: Integrate ReSukiSU
+        run: |
+          set -eux
+
+          cd kernel_source
+
+          echo "=== Integrasi ReSukiSU ==="
+
+          curl -LSs \
+            "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" \
+            | bash
+
+          echo "=== Memeriksa KernelSU ==="
+
+          test -e drivers/kernelsu
+
+          test -f drivers/kernelsu/Kconfig
+
+          test -f drivers/kernelsu/Makefile
+
+          echo "ReSukiSU berhasil ditambahkan ke source."
+
+      # 6. Find Defconfig
+      - name: Find GTA9 Defconfig
+        run: |
+          set -eux
+
+          cd kernel_source
+
+          echo "=== Defconfig yang tersedia ==="
+
+          find arch/arm64/configs \
+            -type f \
+            \( -iname "*gta9*" -o -iname "*x110*" \) \
+            -print
+
+          echo "=== Semua defconfig ==="
+
+          find arch/arm64/configs \
+            -type f \
+            -name "*defconfig" \
+            -print
+
+      # 7. Configure
+      - name: Configure Kernel
+        run: |
+          set -eux
+
+          cd kernel_source
+
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+
+          mkdir -p out
+
+          echo "=== Mencari defconfig ==="
+
+          CONFIG_PATH=$(
+            find arch/arm64/configs \
+              -type f \
+              \( -iname "*gta9*" -o -iname "*x110*" \) \
+              | head -n 1
+          )
+
+          if [ -z "$CONFIG_PATH" ]; then
+            echo "ERROR: Defconfig GTA9/X110 tidak ditemukan."
+            exit 1
+          fi
+
+          TARGET_CONFIG="${CONFIG_PATH#arch/arm64/configs/}"
+
+          echo "Menggunakan: $TARGET_CONFIG"
+
+          make O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            "$TARGET_CONFIG"
+
+          echo "=== Mengaktifkan ReSukiSU ==="
+
+          ./scripts/config \
+            --file out/.config \
+            --enable CONFIG_KSU \
+            --enable CONFIG_KSU_MANUAL_HOOK \
+            --enable CONFIG_KALLSYMS \
+            --enable CONFIG_KALLSYMS_ALL
+
+          echo "=== Finalisasi config ==="
+
+          make O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            olddefconfig
+
+          echo "=== Cek CONFIG_KSU ==="
+
+          grep -E \
+            'CONFIG_KSU=|CONFIG_KSU_MANUAL_HOOK=|CONFIG_KALLSYMS=' \
+            out/.config
+
+      # 8. Compile Image
+      - name: Build Kernel Image
+        run: |
+          set -eux
+
+          cd kernel_source
+
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+
+          echo "=== BUILD RE SUKISU IMAGE ==="
+
+          make -j"$(nproc)" \
+            O=out \
+            ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            Image
+
+          echo "=== BUILD SELESAI ==="
+
+          ls -lh out/arch/arm64/boot/Image
+
+          file out/arch/arm64/boot/Image
+
+          test -f out/arch/arm64/boot/Image
+
+      # 9. Upload Image
+      - name: Upload Kernel Image
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Samsung-X110-ReSukiSU-Image
+          path: kernel_source/out/arch/arm64/boot/Image
+          if-no-files-found: error
