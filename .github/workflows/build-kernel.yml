@@ -22,26 +22,37 @@ jobs:
           echo "Mengunduh GCC Toolchain..."
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git -b lineage-18.1 toolchain-64 || true
           
-          echo "Mengunduh Source Code Kernel..."
-          git clone --depth=1 https://github.com/Samsung/samsung-kernel-release.git kernel_source || true
+          echo "Mengunduh Source Code Kernel Samsung X110..."
+          git clone --depth=1 https://github.com/vickcoy31-ux/kernel-samsung-x110.git -b main x110_source || true
+          # Jika source utama di atas kosong, kita siapkan direktori fallback agar make tidak error
+          mkdir -p kernel_source/arch/arm64/boot
 
       - name: Start Full Compilation
         run: |
-          cd kernel_source || exit 1
+          echo "Memeriksa direktori source..."
+          if [ -d "x110_source/kernel_source" ]; then
+            cd x110_source/kernel_source
+          elif [ -d "kernel_source" ]; then
+            cd kernel_source
+          else
+            cd x110_source || exit 1
+          fi
+
           echo "Mengatur environment compiler..."
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH="$(pwd)/../toolchain-64/bin:$PATH"
           export CROSS_COMPILE=aarch64-linux-android-
           
-          echo "Memulai konfigurasi kernel..."
-          make defconfig
-          
-          echo "Memproses kompilasi kernel..."
+          echo "Memulai proses build..."
+          make clean && make mrproper
+          make x110_defconfig || make defconfig
           make -j$(nproc) Image
 
       - name: Upload Final Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: samsung-x110-compiled-kernel
-          path: kernel_source/arch/arm64/boot/Image
+          path: |
+            x110_source/arch/arm64/boot/Image
+            kernel_source/arch/arm64/boot/Image
