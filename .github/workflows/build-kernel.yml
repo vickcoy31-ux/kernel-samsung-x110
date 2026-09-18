@@ -1,48 +1,81 @@
+name: Build Samsung X110 Kernel with KernelSU
 
-      # ==========================================
-      # 5. INTEGRATE ReSukiSU
-      # ==========================================
-      - name: Integrate ReSukiSU
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
         run: |
-          set -eux
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git wget curl ccache rsync kmod cpio python3 lz4
 
-          cd kernel_source
+      - name: Download Clang Toolchain
+        run: |
+          echo "Mengunduh Proton-Clang Compiler..."
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
-          echo "=== Integrasi ReSukiSU ==="
+      - name: Clone Source Code
+        run: |
+          echo "Mengunduh Source Code Kernel Samsung GTA9..."
+          git clone --depth=1 https://github.com/0xA11CE613/kernel_samsung_gta9.git kernel_source
 
-          # Download official ReSukiSU setup script
-          curl -LSs \
-            "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" \
-            -o /tmp/resukisu-setup.sh
+      - name: Inject KernelSU Clean Setup
+        run: |
+          cd kernel_source || exit 1
+          
+          echo "=== 1. Mengunduh KernelSU langsung ==="
+          rm -rf drivers/kernelsu
+          git clone --depth=1 https://github.com/tiann/KernelSU drivers/kernelsu
+          
+          echo "=== 2. Memastikan baris Kconfig hanya ada 1 ==="
+          sed -i '/drivers\/kernelsu\/Kconfig/d' drivers/Kconfig
+          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+          
+          echo "=== 3. Memastikan baris Makefile hanya ada 1 ==="
+          sed -i '/kernelsu/d' drivers/Makefile
+          echo 'obj-y += kernelsu/' >> drivers/Makefile
 
-          chmod +x /tmp/resukisu-setup.sh
-
-          # Jalankan setup dari root source kernel
-          bash /tmp/resukisu-setup.sh
-
-          echo "=== Memeriksa hasil setup ==="
-
-          echo "--- drivers/kernelsu ---"
-          ls -ld drivers/kernelsu || true
-
-          echo "--- Target symlink ---"
-          readlink drivers/kernelsu || true
-
-          echo "--- Isi folder drivers ---"
-          ls -la drivers | head -50
-
-          echo "--- Memeriksa Kconfig ---"
-
-          if [ -f drivers/kernelsu/Kconfig ]; then
-            echo "Kconfig ReSukiSU ditemukan."
+      - name: Start Full Compilation
+        run: |
+          cd kernel_source || exit 1
+          
+          # Setup Environment Clang & Cross Compiler
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH="$(pwd)/../clang/bin:$PATH"
+          export CC=clang
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          
+          echo "=== Mencari file defconfig GTA9/X110 ==="
+          CONFIG_PATH=$(find arch/arm64/configs/ -type f \( -iname "*gta9*" -o -iname "*x110*" \) | head -n 1)
+          
+          if [ -n "$CONFIG_PATH" ]; then
+            TARGET_CONFIG=$(echo "$CONFIG_PATH" | sed 's|arch/arm64/configs/||')
+            echo "Memakai config: $TARGET_CONFIG"
+            make CC=clang $TARGET_CONFIG
           else
-            echo "PERINGATAN: Kconfig tidak ditemukan melalui symlink."
+            echo "Memakai defconfig fallback..."
+            make CC=clang defconfig
           fi
+          
+          echo "Memastikan opsi KernelSU aktif di .config..."
+          chmod +x scripts/config || true
+          scripts/config --enable CONFIG_KSU || echo "CONFIG_KSU=y" >> .config
+          
+          echo "Memproses kompilasi kernel dengan KernelSU..."
+          make -j$(nproc) CC=clang Image
 
-          echo "--- Memeriksa Makefile ---"
-          grep -n "kernelsu" drivers/Makefile || true
-
-          echo "--- Memeriksa referensi Kconfig ---"
-          grep -n "drivers/kernelsu/Kconfig" drivers/Kconfig || true
-
-          echo "=== Setup ReSukiSU selesai ==="
+      - name: Upload Final Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: samsung-x110-kernelsu-kernel
+          path: kernel_source/arch/arm64/boot/Image
