@@ -1,4 +1,4 @@
-name: Build Samsung X110 Kernel
+name: Build Samsung X110 Kernel with KernelSU
 
 on:
   workflow_dispatch:
@@ -27,11 +27,17 @@ jobs:
           echo "Mengunduh Source Code Kernel Samsung GTA9..."
           git clone --depth=1 https://github.com/0xA11CE613/kernel_samsung_gta9.git kernel_source
 
+      - name: Integrate KernelSU
+        run: |
+          cd kernel_source || exit 1
+          echo "Memasang KernelSU ke dalam source code..."
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+
       - name: Start Full Compilation
         run: |
           cd kernel_source || exit 1
           
-          # Setup Environment Clang
+          # Setup Environment Clang & Cross Compiler
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH="$(pwd)/../clang/bin:$PATH"
@@ -51,11 +57,14 @@ jobs:
             make CC=clang defconfig
           fi
           
-          echo "Memproses kompilasi kernel..."
+          echo "Memastikan opsi KernelSU aktif di .config..."
+          scripts/config --enable CONFIG_KSU || true
+          
+          echo "Memproses kompilasi kernel dengan KernelSU..."
           make -j$(nproc) CC=clang Image
 
       - name: Upload Final Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: samsung-x110-compiled-kernel
+          name: samsung-x110-kernelsu-kernel
           path: kernel_source/arch/arm64/boot/Image
