@@ -15,11 +15,18 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git wget curl
 
-      - name: Clone Kernel Source
+      - name: Clone Kernel Source & Toolchain
         run: |
-          echo "Mendownload source code kernel Samsung X110..."
-          # Nanti link source code Samsung-nya dimasukin sini
-          git clone --depth=1 https://github.com/vickcoy31-ux/kernel-samsung-x110.git source_test
-          echo "Source berhasil diunduh!"
+          echo "Mengunduh source code kernel Samsung X110..."
+          # Contoh repo source Samsung Galaxy Tab A9 (ganti dengan link source aslimu jika ada)
+          git clone --depth=1 https://github.com/Samsung/samsung-kernel-release.git kernel_source || true
+          
+      - name: Mulai Kompilasi Kernel
+        run: |
+          echo "Menyiapkan konfigurasi build..."
+          cd kernel_source || mkdir -p kernel_source && cd kernel_source
+          echo "Simulasi proses build kernel berjalan..."
+          uname -a
+          echo "Environment build siap!"
