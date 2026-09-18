@@ -33,11 +33,8 @@ jobs:
           echo "Membersihkan folder KernelSU lama jika ada..."
           rm -rf drivers/kernelsu
           
-          echo "Mengunduh repository KernelSU..."
-          git clone --depth=1 https://github.com/tiann/KernelSU drivers/kernelsu
-          
-          echo "Menghubungkan KernelSU ke sistem build..."
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+          echo "Mengunduh source code KernelSU..."
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
 
       - name: Start Full Compilation
         run: |
