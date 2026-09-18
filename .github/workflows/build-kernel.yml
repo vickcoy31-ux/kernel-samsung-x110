@@ -1,20 +1,26 @@
-name: Build Kernel Test
+name: Build Samsung X110 Kernel
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up environment
+      - name: Install Dependencies
         run: |
-          echo "Menyiapkan server build kernel..."
-          uname -a
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git
 
-      - name: Test status
-        run: echo "Server siap!"
+      - name: Check Environment Ready
+        run: |
+          echo "Server build kernel siap!"
+          echo "Jumlah CPU core:"
+          nproc
+          echo "Kapasitas RAM:"
+          free -h
