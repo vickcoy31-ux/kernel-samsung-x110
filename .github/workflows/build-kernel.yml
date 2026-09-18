@@ -1,7 +1,8 @@
-.github/workflows/build-kernel.yml
 name: Build Kernel Test
 
-on: [push]
+on:
+  push:
+    branches: [ main ]
 
 jobs:
   build:
@@ -14,8 +15,6 @@ jobs:
         run: |
           echo "Menyiapkan server build kernel..."
           uname -a
-          free -h
-          df -h
 
       - name: Test status
-        run: echo "Server siap untuk merakit kernel Samsung Tab A9!"
+        run: echo "Server siap!"
