@@ -25,12 +25,16 @@ jobs:
       - name: Clone Source Code
         run: |
           echo "Mengunduh Source Code Kernel Samsung GTA9..."
+          git clone --depth=1 https://github.0xA11CE613/kernel_samsung_gta9.git kernel_source || \
           git clone --depth=1 https://github.com/0xA11CE613/kernel_samsung_gta9.git kernel_source
 
-      - name: Integrate KernelSU
+      - name: Inject KernelSU
         run: |
           cd kernel_source || exit 1
-          echo "Memasang KernelSU ke dalam source code..."
+          echo "Mengunduh repository KernelSU..."
+          git clone --depth=1 https://github.com/tiann/KernelSU drivers/kernelsu
+          
+          echo "Menghubungkan KernelSU ke sistem build..."
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
       - name: Start Full Compilation
