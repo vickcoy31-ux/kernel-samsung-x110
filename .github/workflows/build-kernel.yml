@@ -29,20 +29,15 @@ jobs:
 
       - name: Inject KernelSU Clean Setup
         run: |
-          echo "=== 1. Masuk ke folder kernel dan bersihkan KSU lama ==="
           cd kernel_source || exit 1
+          
+          echo "=== 1. Hapus folder & baris KSU lama kalau ada ==="
           rm -rf drivers/kernelsu
-          
-          echo "=== 2. Mengunduh KernelSU tepat di drivers/kernelsu ==="
-          git clone --depth=1 https://github.com/tiann/KernelSU.git drivers/kernelsu
-          
-          echo "=== 3. Membersihkan dan memasukkan konfigurasi Kconfig ==="
           sed -i '/kernelsu/d' drivers/Kconfig
-          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
-          
-          echo "=== 4. Membersihkan dan memasukkan konfigurasi Makefile ==="
           sed -i '/kernelsu/d' drivers/Makefile
-          echo 'obj-y += kernelsu/' >> drivers/Makefile
+          
+          echo "=== 2. Setup KernelSU resmi via setup.sh ==="
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
 
       - name: Start Full Compilation
         run: |
