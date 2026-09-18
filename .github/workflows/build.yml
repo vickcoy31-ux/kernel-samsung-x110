@@ -1,91 +1,4 @@
 
-name: Build Samsung X110 ReSukiSU Image
-
-"on":
-  workflow_dispatch:
-  push:
-    branches: [main]
-
-permissions:
-  contents: read
-
-jobs:
-  build:
-    name: Build ReSukiSU Kernel Image
-    runs-on: ubuntu-22.04
-    timeout-minutes: 120
-
-    steps:
-
-      # ==========================================
-      # 1. CHECKOUT
-      # ==========================================
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      # ==========================================
-      # 2. DEPENDENCIES
-      # ==========================================
-      - name: Install Dependencies
-        run: |
-          set -eux
-
-          sudo apt-get update
-
-          sudo apt-get install -y \
-            build-essential \
-            bc \
-            bison \
-            flex \
-            libssl-dev \
-            libelf-dev \
-            libncurses-dev \
-            gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabi \
-            git \
-            curl \
-            wget \
-            python3 \
-            rsync \
-            cpio \
-            lz4 \
-            device-tree-compiler
-
-      # ==========================================
-      # 3. PROTON CLANG
-      # ==========================================
-      - name: Download Proton Clang
-        run: |
-          set -eux
-
-          git clone --depth=1 \
-            https://github.com/kdrag0n/proton-clang.git \
-            clang
-
-          test -x clang/bin/clang
-
-          clang/bin/clang --version
-
-      # ==========================================
-      # 4. SAMSUNG GTA9 SOURCE
-      # ==========================================
-      - name: Clone Samsung GTA9 Kernel
-        run: |
-          set -eux
-
-          git clone --depth=1 \
-            https://github.com/0xA11CE613/kernel_samsung_gta9.git \
-            kernel_source
-
-          cd kernel_source
-
-          test -f Makefile
-          test -d arch/arm64
-          test -d drivers
-
-          echo "=== Source kernel ==="
-          git log -1 --oneline
-
       # ==========================================
       # 5. INTEGRATE RESUKISU
       # ==========================================
@@ -97,79 +10,41 @@ jobs:
 
           echo "=== Integrasi ReSukiSU ==="
 
-          # Backup konfigurasi asli
-          cp drivers/Kconfig drivers/Kconfig.original
+          # Bersihkan sisa integrasi sebelumnya
+          rm -rf KernelSU
+          rm -rf ReSukiSU
+          rm -f drivers/kernelsu
 
-          # Download setup script resmi
-          curl -LSs \
-            https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh \
-            -o /tmp/resukisu-setup.sh
+          echo "=== Clone repository ReSukiSU ==="
 
-          chmod +x /tmp/resukisu-setup.sh
+          git clone --depth=1 \
+            https://github.com/ReSukiSU/ReSukiSU.git \
+            ReSukiSU
 
-          # Jalankan setup tanpa memaksa branch main
-          bash /tmp/resukisu-setup.sh
+          echo "=== Cek struktur repository ==="
 
-          echo "=== Pemeriksaan hasil setup ==="
+          find ReSukiSU/kernel \
+            -maxdepth 2 \
+            -type f \
+            -name Kconfig \
+            -print
 
-          echo "--- Isi drivers ---"
-          ls -la drivers
+          find ReSukiSU/kernel \
+            -maxdepth 2 \
+            -type f \
+            -name Makefile \
+            -print
 
-          echo "--- Symlink kernelsu ---"
-          ls -ld drivers/kernelsu || true
+          echo "=== Memeriksa file kernel ==="
 
-          echo "--- Target symlink ---"
-          readlink drivers/kernelsu || true
+          test -f ReSukiSU/kernel/Kconfig
+          test -f ReSukiSU/kernel/Makefile
 
-          echo "--- Folder KernelSU ---"
-          ls -la KernelSU 2>/dev/null || true
+          echo "=== Membuat symlink ==="
 
-          echo "--- Folder ReSukiSU ---"
-          ls -la ReSukiSU 2>/dev/null || true
+          ln -s ../ReSukiSU/kernel drivers/kernelsu
 
-          # ======================================
-          # PERBAIKI SYMLINK KERNELSU
-          # ======================================
-
-          if [ -f drivers/kernelsu/Kconfig ]; then
-            echo "Kconfig sudah ditemukan."
-
-          else
-            echo "Kconfig tidak ditemukan melalui symlink."
-
-            echo "Mencari Kconfig ReSukiSU..."
-
-            KSU_KCONFIG=$(
-              find . \
-                -path './.git' -prune -o \
-                -type f -name Kconfig -print \
-                | grep -E \
-                  '(KernelSU|ReSukiSU|kernelsu|resukisu)' \
-                | head -n 1 || true
-            )
-
-            if [ -z "$KSU_KCONFIG" ]; then
-              echo "ERROR: Kconfig ReSukiSU tidak ditemukan."
-              exit 1
-            fi
-
-            echo "Kconfig ditemukan: $KSU_KCONFIG"
-
-            KSU_DIR=$(dirname "$KSU_KCONFIG")
-
-            echo "Direktori KSU: $KSU_DIR"
-
-            rm -f drivers/kernelsu
-
-            ln -s "../${KSU_DIR#./}" drivers/kernelsu
-
-          fi
-
-          # ======================================
-          # VALIDASI KERNELSU
-          # ======================================
-
-          echo "=== Validasi akhir ==="
+          echo "=== Memeriksa symlink ==="
 
           ls -ld drivers/kernelsu
 
@@ -178,148 +53,30 @@ jobs:
           test -f drivers/kernelsu/Kconfig
           test -f drivers/kernelsu/Makefile
 
-          echo "Kconfig dan Makefile ditemukan."
+          echo "Kconfig ReSukiSU ditemukan."
 
-          # ======================================
-          # MAKEFILE
-          # ======================================
+          echo "=== Menambahkan Makefile ==="
 
-          if ! grep -qF 'kernelsu' drivers/Makefile; then
+          if ! grep -qF 'obj-$(CONFIG_KSU) += kernelsu/' \
+              drivers/Makefile; then
+
             printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' \
               >> drivers/Makefile
           fi
 
-          # ======================================
-          # KCONFIG
-          # ==========================================
+          echo "=== Menambahkan Kconfig ==="
 
-          if ! grep -qF 'drivers/kernelsu/Kconfig' drivers/Kconfig; then
+          if ! grep -qF 'source "drivers/kernelsu/Kconfig"' \
+              drivers/Kconfig; then
+
             printf '\nsource "drivers/kernelsu/Kconfig"\n' \
               >> drivers/Kconfig
           fi
 
-          echo "=== Integrasi selesai ==="
+          echo "=== Verifikasi akhir ==="
 
-          grep -n "kernelsu" drivers/Makefile
-          grep -n "drivers/kernelsu/Kconfig" drivers/Kconfig
+          grep -nF 'kernelsu' drivers/Makefile
 
-      # ==========================================
-      # 6. FIND DEFCONFIG
-      # ==========================================
-      - name: Find GTA9 Defconfig
-        run: |
-          set -eux
+          grep -nF 'drivers/kernelsu/Kconfig' drivers/Kconfig
 
-          cd kernel_source
-
-          echo "=== Defconfig GTA9 / X110 ==="
-
-          find arch/arm64/configs \
-            -type f \
-            \( -iname "*gta9*" -o -iname "*x110*" \) \
-            -print
-
-      # ==========================================
-      # 7. CONFIGURE KERNEL
-      # ==========================================
-      - name: Configure Kernel
-        run: |
-          set -eux
-
-          cd kernel_source
-
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
-
-          mkdir -p out
-
-          echo "=== Memilih defconfig ==="
-
-          CONFIG_PATH=$(
-            find arch/arm64/configs \
-              -type f \
-              \( -iname "*gta9*" -o -iname "*x110*" \) \
-              | head -n 1
-          )
-
-          if [ -z "$CONFIG_PATH" ]; then
-            echo "ERROR: Defconfig GTA9/X110 tidak ditemukan."
-            exit 1
-          fi
-
-          TARGET_CONFIG="${CONFIG_PATH#arch/arm64/configs/}"
-
-          echo "Defconfig terpilih: $TARGET_CONFIG"
-
-          echo "=== Menjalankan defconfig ==="
-
-          make O=out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            "$TARGET_CONFIG"
-
-          echo "=== Mengaktifkan ReSukiSU ==="
-
-          ./scripts/config \
-            --file out/.config \
-            --enable CONFIG_KSU \
-            --enable CONFIG_KSU_MANUAL_HOOK \
-            --enable CONFIG_KALLSYMS \
-            --enable CONFIG_KALLSYMS_ALL
-
-          echo "=== Finalisasi konfigurasi ==="
-
-          make O=out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            olddefconfig
-
-          echo "=== Verifikasi CONFIG_KSU ==="
-
-          grep -E \
-            'CONFIG_KSU=|CONFIG_KSU_MANUAL_HOOK=|CONFIG_KALLSYMS=' \
-            out/.config || true
-
-      # ==========================================
-      # 8. BUILD IMAGE
-      # ==========================================
-      - name: Build Kernel Image
-        run: |
-          set -eux
-
-          cd kernel_source
-
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
-
-          echo "=== Memulai build kernel ==="
-
-          make -j"$(nproc)" \
-            O=out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            Image
-
-          echo "=== Build selesai ==="
-
-          ls -lh out/arch/arm64/boot/Image
-
-          file out/arch/arm64/boot/Image
-
-          test -f out/arch/arm64/boot/Image
-
-      # ==========================================
-      # 9. UPLOAD IMAGE
-      # ==========================================
-      - name: Upload Kernel Image
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Samsung-X110-ReSukiSU-Image
-          path: kernel_source/out/arch/arm64/boot/Image
-          if-no-files-found: error
+          echo "=== ReSukiSU berhasil diintegrasikan ==="
