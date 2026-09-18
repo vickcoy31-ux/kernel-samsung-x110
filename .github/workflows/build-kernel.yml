@@ -17,10 +17,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git
 
-      - name: Check Environment Ready
+      - name: Clone Kernel Source
         run: |
-          echo "Server build kernel siap!"
-          echo "Jumlah CPU core:"
-          nproc
-          echo "Kapasitas RAM:"
-          free -h
+          echo "Mendownload source code kernel Samsung X110..."
+          # Nanti link source code Samsung-nya dimasukin sini
+          git clone --depth=1 https://github.com/vickcoy31-ux/kernel-samsung-x110.git source_test
+          echo "Source berhasil diunduh!"
