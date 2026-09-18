@@ -23,17 +23,25 @@ jobs:
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git -b lineage-18.1 toolchain-64 || true
           
           echo "Mengunduh Source Code Kernel..."
-          git clone --depth=1 url?id=1Samsung/samsung-kernel-release.git kernel_source || true
+          git clone --depth=1 https://github.com/Samsung/samsung-kernel-release.git kernel_source || true
 
-      - name: Buat Output File Aman
+      - name: Start Full Compilation
         run: |
-          # Bikin folder langsung sejajar di luar folder kernel_source
-          mkdir -p my_output
-          echo "Samsung X110 Kernel Final Image" > my_output/Image
-          echo "dtb binary config" > my_output/dtb.img
+          cd kernel_source || exit 1
+          echo "Mengatur environment compiler..."
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH="$(pwd)/../toolchain-64/bin:$PATH"
+          export CROSS_COMPILE=aarch64-linux-android-
+          
+          echo "Memulai konfigurasi kernel..."
+          make defconfig
+          
+          echo "Memproses kompilasi kernel..."
+          make -j$(nproc) Image
 
       - name: Upload Final Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: samsung-x110-compiled-kernel
-          path: my_output/*
+          path: kernel_source/arch/arm64/boot/Image
