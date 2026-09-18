@@ -31,13 +31,20 @@ jobs:
         run: |
           cd kernel_source || exit 1
           
-          echo "=== 1. Hapus folder & baris KSU lama kalau ada ==="
+          echo "=== 1. Hapus folder & baris KSU lama ==="
           rm -rf drivers/kernelsu
           sed -i '/kernelsu/d' drivers/Kconfig
           sed -i '/kernelsu/d' drivers/Makefile
           
-          echo "=== 2. Setup KernelSU resmi via setup.sh ==="
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
+          echo "=== 2. Clone KernelSU ke drivers/kernelsu ==="
+          git clone --depth=1 https://github.com/tiann/KernelSU.git drivers/kernelsu
+          
+          echo "=== 3. Daftarkan Kconfig dan Makefile secara manual ==="
+          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+          echo 'obj-y += kernelsu/' >> drivers/Makefile
+          
+          echo "=== 4. Verifikasi keberadaan Kconfig ==="
+          ls -la drivers/kernelsu/Kconfig
 
       - name: Start Full Compilation
         run: |
