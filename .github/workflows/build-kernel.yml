@@ -15,7 +15,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git wget curl ccache
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git wget curl ccache rsync kmod cpio python3 lz4
 
       - name: Clone Toolchain & Source
         run: |
@@ -23,7 +23,7 @@ jobs:
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git -b lineage-18.1 toolchain-64
           
           echo "Mengunduh Source Code Kernel Samsung GTA9..."
-          git clone --depth=1 https://github.com/0xA11CE613/kernel_samsung_gta9.git kernel_source
+          git clone --depth=1 https://github.com0xA11CE613/kernel_samsung_gta9.git kernel_source
 
       - name: Start Full Compilation
         run: |
@@ -33,15 +33,24 @@ jobs:
           export PATH="$(pwd)/../toolchain-64/bin:$PATH"
           export CROSS_COMPILE=aarch64-linux-android-
           
-          echo "Mencari file defconfig GTA9..."
-          DEFCONFIG_FILE=$(ls arch/arm64/configs/ | grep -iE 'gta9|x110' | head -n 1)
-          if [ -n "$DEFCONFIG_FILE" ]; then
-            echo "Menggunakan config: $DEFCONFIG_FILE"
-            make $DEFCONFIG_FILE
+          echo "=== Mencari file defconfig GTA9/X110 ==="
+          CONFIG_PATH=$(find arch/arm64/configs/ -type f \( -iname "*gta9*" -o -iname "*x110*" \) | head -n 1)
+          
+          if [ -n "$CONFIG_PATH" ]; then
+            TARGET_CONFIG=$(echo "$CONFIG_PATH" | sed 's|arch/arm64/configs/||')
+            echo "Ditemukan config: $TARGET_CONFIG"
+            make $TARGET_CONFIG
           else
-            echo "Menggunakan defconfig fallback..."
-            make defconfig
+            echo "Config spesifik tidak ditemukan, menampilkan semua config yang ada:"
+            find arch/arm64/configs/ -type f
+            exit 1
           fi
           
           echo "Memproses kompilasi kernel..."
           make -j$(nproc) Image
+
+      - name: Upload Final Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: samsung-x110-compiled-kernel
+          path: kernel_source/arch/arm64/boot/Image
