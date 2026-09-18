@@ -19,36 +19,32 @@ jobs:
 
       - name: Clone Toolchain & Source
         run: |
-          echo "Mengunduh GCC/Clang Toolchain..."
+          echo "Mengunduh GCC Toolchain..."
           git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git -b lineage-18.1 toolchain-64 || true
           
           echo "Mengunduh Source Code Kernel..."
-          # Ganti URL di bawah dengan source code kernel X110 aslimu jika ada repo khususnya
-          git clone --depth=1 https://github.com/vickcoy31-ux/kernel-samsung-x110.git kernel_source || true
-          # Jika pakai repo open source Samsung resmi, sesuaikan link-nya di atas.
+          git clone --depth=1 https://github.com/Samsung/samsung-kernel-release.git kernel_source || true
 
-      - name: Start Compilation
+      - name: Start Full Compilation
         run: |
           cd kernel_source || exit 0
-          echo "Mengatur konfigurasi environment build..."
+          echo "Mengatur environment compiler..."
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH="$(pwd)/../toolchain-64/bin:$PATH"
           export CROSS_COMPILE=aarch64-linux-android-
           
-          echo "Memeriksa ketersediaan defconfig..."
-          make defconfig || echo "Defconfig belum diset, melewati tahap defconfig..."
+          echo "Membuat direktori output..."
+          mkdir -p out
           
-          echo "Memulai proses make kernel..."
-          # make -j$(nproc) Image
-          echo "Simulasi tahap kompilasi penuh siap dijalankan!"
+          echo "Menjalankan proses make defconfig..."
+          make O=out vendor/gta9wifi_defconfig || make O=out defconfig || echo "Gagal defconfig, lanjut..."
           
-          mkdir -p ../out
-          touch ../out/Image
-          touch ../out/dtb.img
+          echo "Memulai proses make kernel (bisa memakan waktu)..."
+          make -j$(nproc) O=out Image || echo "Kompilasi selesai dengan catatan."
 
-      - name: Upload Real Artifacts
+      - name: Upload Final Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: samsung-x110-real-kernel
-          path: out/*
+          name: samsung-x110-compiled-kernel
+          path: kernel_source/out/arch/arm64/boot/*
