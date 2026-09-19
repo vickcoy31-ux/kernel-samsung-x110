@@ -42,8 +42,8 @@ jobs:
           mkdir -p gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
           tar -xzf gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}.tar.gz -C gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
 
-      # 4. SAMSUNG BUILD SYSTEM LAYOUT & AGGRESSIVE HEADER FIX
-      - name: Configure Samsung Build Layout and Headers
+      # 4. SAMSUNG BUILD SYSTEM LAYOUT & WRAPPER TRICK
+      - name: Configure Samsung Build Layout and Wrapper
         run: |
           cd gta9
           ln -sf . kernel-5.10
@@ -53,22 +53,23 @@ jobs:
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
           mkdir -p "$TOOL_DIR"
 
-          # --- AGGRESSIVE HEADER FIX ---
-          # Kita buat folder include di dalam clang, dan kita link SELURUH include ubuntu ke sana
-          mkdir -p "$CLANG_ROOT/include"
-          ln -sf /usr/include "$CLANG_ROOT/include/usr"
-          ln -sf /usr/include/x86_64-linux-gnu "$CLANG_ROOT/include/x86_64-linux-gnu"
-          # Link manual untuk file-file paling krusial agar Clang tidak bisa alasan
-          ln -sf /usr/include/x86_64-linux-gnu/sys "$CLANG_ROOT/include/sys"
-          ln -sf /usr/include/x86_64-linux-gnu/bits "$CLANG_ROOT/include/bits"
-          ln -sf /usr/include/x86_64-linux-gnu/linux "$CLANG_ROOT/include/linux"
-          # ------------------------------
+          # --- WRAPPER TRICK: Membuat script pengganti clang ---
+          # Script ini akan menyisipkan folder header Ubuntu secara otomatis
+          cat <<EOF > "$TOOL_DIR/clang"
+          #!/bin/bash
+          exec "$CLANG_ROOT/bin/clang-12" -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include "\$@"
+          EOF
+          chmod +x "$TOOL_DIR/clang"
 
-          cp -f "$CLANG_ROOT/bin/clang-12" "$TOOL_DIR/clang"
-          cp -f "$CLANG_ROOT/bin/clang-12" "$TOOL_DIR/clang++"
+          cat <<EOF > "$TOOL_DIR/clang++"
+          #!/bin/bash
+          exec "$CLANG_ROOT/bin/clang++" -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include "\$@"
+          EOF
+          chmod +x "$TOOL_DIR/clang++"
+          # -----------------------------------------------------
+
           cp -f "$CLANG_ROOT/bin/ld.lld" "$TOOL_DIR/lld" 2>/dev/null || cp -f "$CLANG_ROOT/bin/lld" "$TOOL_DIR/lld"
           ln -sf lld "$TOOL_DIR/ld.lld"
-
           ln -sf /usr/bin/realpath "$TOOL_DIR/realpath"
 
           COMMANDS="echo printf sleep ar as awk basename bash cat chmod cmp cp cut date dirname du env expr find grep head ld ln mkdir mktemp mv nproc objcopy objdump od printf pwd readlink rm sed sort stat tail tar test touch tr uname uniq wc which xargs zip make gcc g++ aarch64-linux-gnu-gcc aarch64-linux-gnu-g++ arm-linux-gnueabi-gcc arm-linux-gnueabi-g++"
@@ -93,7 +94,7 @@ jobs:
             --kernel-defconfig-overlays "entry_level.config ot11.config ot11_data.config ot11_wifi.config" \
             -m user -o out/build.config
 
-      # 6. ENV INJECTION (FORCED)
+      # 6. ENV INJECTION
       - name: Set Global Environment
         run: |
           cd gta9
@@ -104,9 +105,6 @@ jobs:
           
           sed -i "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=$CLANG_ROOT/bin#" out/build.config
 
-          # Menambahkan C_INCLUDE_PATH secara global agar semua compiler menemukannya
-          echo "C_INCLUDE_PATH=/usr/include/x86_64-linux-gnu:/usr/include" >> $GITHUB_ENV
-          echo "CPLUS_INCLUDE_PATH=/usr/include/x86_64-linux-gnu:/usr/include" >> $GITHUB_ENV
           echo "PATH=$PWD/build/build-tools/path/linux-x86:\$PATH" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=$CLANG_ROOT/compat-libs:\$LD_LIBRARY_PATH" >> $GITHUB_ENV
           echo "HOSTCFLAGS=--gcc-toolchain=/usr -resource-dir=$CLANG_RES -isystem /usr/lib/gcc/$GCC_MACH/$GCC_VER/include -isystem /usr/lib/gcc/$GCC_MACH/$GCC_VER/include-fixed -isystem /usr/include/$GCC_MACH -isystem /usr/include" >> $GITHUB_ENV
@@ -124,16 +122,15 @@ jobs:
           OUT_DIR: out
           DIST_DIR: out
           BUILD_CONFIG: out/build.config
-          HOSTCC: /usr/bin/gcc
-          HOSTCXX: /usr/bin/g++
-          HOSTLD: /usr/bin/gcc
+          # Pakai wrapper clang kita
+          HOSTCC: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang
+          HOSTCXX: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang++
+          HOSTLD: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/ld.lld
           KCFLAGS: "-Wno-error"
         run: |
           set -eux
           cd gta9
-          # Kita gunakan HOSTCC=gcc sebagai cadangan, tapi jika LLVM=1 memaksa clang, 
-          # header symlink di atas sudah siap mengatasinya.
-          ./build/build.sh LLVM_IAS=1 HOSTCC=gcc HOSTCXX=g++ HOSTLD=gcc -j"$(($(nproc)-1))"
+          ./build/build.sh LLVM_IAS=1 -j"$(($(nproc)-1))"
 
       # 8. RESULT EXTRACTION
       - name: Package and Upload
