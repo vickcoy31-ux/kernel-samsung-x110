@@ -25,9 +25,6 @@ jobs:
             flex \
             build-essential \
             ccache \
-            clang \
-            llvm \
-            lld \
             gcc-aarch64-linux-gnu \
             gcc-arm-linux-gnueabi \
             libssl-dev \
@@ -43,16 +40,9 @@ jobs:
             cpio \
             device-tree-compiler
 
-          echo "=== TOOLCHAIN ==="
-          clang --version || true
-          ld.lld --version || true
-          aarch64-linux-gnu-gcc --version || true
-
       - name: Clone GTA9 Source
         run: |
           set -eux
-
-          rm -rf gta9
 
           git clone \
             --depth=1 \
@@ -60,175 +50,167 @@ jobs:
             https://github.com/prabhatkrmishra/kernel_samsung_gta9.git \
             gta9
 
-          cd gta9
-
-          echo "=== SOURCE COMMIT ==="
-          git rev-parse HEAD
-
-          echo "=== SOURCE ROOT ==="
-          ls -lah
-
-          echo "=== VALIDATE KERNEL SOURCE ==="
-          test -f Makefile
-          test -d arch
-          test -d drivers
-          test -d scripts
-          test -f build.config.common
-          test -f build.config.mtk.aarch64
-          test -d setup
-
-          echo "=== KERNEL VERSION ==="
-          make kernelversion
-
-      - name: Initialize KernelSU Submodule
+      - name: Initialize KernelSU
         working-directory: gta9
         run: |
           set -eux
-
-          echo "=== GIT SUBMODULES ==="
-          cat .gitmodules || true
 
           git submodule sync --recursive
           git submodule update --init --depth=1
 
-          echo "=== KERNELSU ==="
-          ls -lah KernelSU || true
+          echo "=== KernelSU ==="
+          ls -lah KernelSU
 
-          if [ -f KernelSU/Makefile ]; then
-            echo "KernelSU submodule is populated."
-          else
-            echo "WARNING: KernelSU Makefile not found."
-          fi
-
-      - name: Inspect Build System
+      - name: Verify Source
         working-directory: gta9
         run: |
           set -eux
 
-          echo "========================================"
-          echo "BUILD DIRECTORIES"
-          echo "========================================"
+          test -f Makefile
+          test -d arch
+          test -d drivers
+          test -d scripts
+          test -d setup
+          test -f build.config.common
+          test -f build.config.mtk.aarch64
 
-          find . -maxdepth 2 -type f \
-            \( -name "build.sh" \
-            -o -name "build_kernel.sh" \
-            -o -name "build_kernel_2.sh" \
-            -o -name "gen_build_config.py" \) \
-            -print
+          echo "=== KERNEL VERSION ==="
+          make kernelversion
 
-          echo "========================================"
-          echo "SETUP DIRECTORY"
-          echo "========================================"
+          echo "=== GTA9 DEFCONFIG ==="
+          ls -lh arch/arm64/configs/*gta9*
 
-          ls -lah setup || true
+          echo "=== KSU CONFIG ==="
+          grep -Rni "CONFIG_KSU" \
+            arch/arm64/configs \
+            kernel/configs \
+            2>/dev/null || true
 
-          echo "========================================"
-          echo "ROOT BUILD DIRECTORY"
-          echo "========================================"
-
-          ls -lah build 2>/dev/null || true
+      - name: Inspect Build Environment
+        working-directory: gta9
+        run: |
+          set -eux
 
           echo "========================================"
           echo "BUILD CONFIG"
           echo "========================================"
 
-          sed -n '1,240p' build.config.common || true
-          echo
-          sed -n '1,260p' build.config.mtk.aarch64 || true
+          sed -n '1,260p' build.config.mtk.aarch64
 
           echo "========================================"
-          echo "SETUP BUILD SCRIPT"
+          echo "COMMON BUILD CONFIG"
+          echo "========================================"
+
+          sed -n '1,260p' build.config.common
+
+          echo "========================================"
+          echo "SETUP DIRECTORY"
+          echo "========================================"
+
+          ls -lah setup
+
+          echo "========================================"
+          echo "BUILD DIRECTORY"
+          echo "========================================"
+
+          ls -lah build 2>/dev/null || true
+
+          echo "========================================"
+          echo "BUILD SCRIPT"
           echo "========================================"
 
           if [ -f setup/build_kernel.sh ]; then
-            sed -n '1,320p' setup/build_kernel.sh
+            sed -n '1,360p' setup/build_kernel.sh
           else
-            echo "setup/build_kernel.sh NOT FOUND"
+            echo "ERROR: setup/build_kernel.sh not found"
+            exit 1
           fi
+
+      - name: Detect Toolchains
+        working-directory: gta9
+        run: |
+          set -eux
 
           echo "========================================"
-          echo "BUILD/BUILD.SH"
+          echo "SYSTEM TOOLCHAINS"
           echo "========================================"
 
-          if [ -f build/build.sh ]; then
-            sed -n '1,260p' build/build.sh
-          else
-            echo "build/build.sh NOT FOUND"
-          fi
+          command -v clang || true
+          command -v clang++ || true
+          command -v ld.lld || true
+          command -v aarch64-linux-gnu-gcc || true
+          command -v arm-linux-gnueabi-gcc || true
 
-      - name: Inspect GTA9 Defconfigs
-        working-directory: gta9
-        run: |
-          set -eux
+          echo "========================================"
+          echo "CLANG VERSION"
+          echo "========================================"
 
-          echo "=== GTA9 DEFCONFIGS ==="
+          clang --version || true
 
-          ls -lah arch/arm64/configs/*gta9* || true
+          echo "========================================"
+          echo "SEARCH SOURCE FOR TOOLCHAIN REFERENCES"
+          echo "========================================"
 
-          echo "=== gta9_00_defconfig ==="
-          if [ -f arch/arm64/configs/gta9_00_defconfig ]; then
-            sed -n '1,280p' arch/arm64/configs/gta9_00_defconfig
-          fi
-
-          echo "=== gta9_defconfig ==="
-          if [ -f arch/arm64/configs/gta9_defconfig ]; then
-            sed -n '1,280p' arch/arm64/configs/gta9_defconfig
-          fi
-
-      - name: Inspect Device Tree
-        working-directory: gta9
-        run: |
-          set -eux
-
-          echo "=== GTA9 DTS FILES ==="
-
-          find arch/arm64/boot/dts \
-            -type f \
-            \( -iname '*gta9*' -o -iname '*8781*' \) \
-            -print
-
-          echo "=== EUR DTS ==="
-
-          DTS="arch/arm64/boot/dts/samsung/mt8781_gta9wifi_eur_open_00.dts"
-
-          if [ -f "$DTS" ]; then
-            sed -n '1,220p' "$DTS"
-          else
-            echo "$DTS not found"
-          fi
-
-      - name: Check KernelSU Configuration
-        working-directory: gta9
-        run: |
-          set -eux
-
-          echo "=== KSU REFERENCES ==="
-
-          grep -Rni \
+          grep -RniE \
+            "CLANG_PREBUILT_BIN|CLANG_VERSION|clang-r[0-9]+|proton-clang|CROSS_COMPILE|LLVM_IAS" \
             --exclude-dir=.git \
-            --exclude='*.o' \
-            --exclude='*.ko' \
-            "CONFIG_KSU" \
-            arch/arm64/configs \
-            kernel \
-            KernelSU \
-            2>/dev/null | head -100 || true
+            . \
+            2>/dev/null | head -200 || true
 
-          echo "=== OT11 CONFIG KSU ==="
+      - name: Build Kernel
+        working-directory: gta9
+        run: |
+          set -eux
 
-          if [ -f kernel/configs/ot11.config ]; then
-            grep -n "CONFIG_KSU" kernel/configs/ot11.config || true
-          fi
+          chmod +x setup/build_kernel.sh
 
-      - name: Finish
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+
+          echo "========================================"
+          echo "BUILD ENVIRONMENT"
+          echo "========================================"
+
+          echo "ARCH=$ARCH"
+          echo "CROSS_COMPILE=$CROSS_COMPILE"
+          echo "CROSS_COMPILE_COMPAT=$CROSS_COMPILE_COMPAT"
+          echo "CC=${CC:-<unset>}"
+          echo "CLANG_PREBUILT_BIN=${CLANG_PREBUILT_BIN:-<unset>}"
+
+          echo "========================================"
+          echo "START BUILD"
+          echo "========================================"
+
+          ./setup/build_kernel.sh --new
+
+      - name: Find Build Outputs
+        if: always()
+        working-directory: gta9
         run: |
           echo "========================================"
-          echo "SOURCE INSPECTION COMPLETE"
+          echo "BUILD OUTPUTS"
           echo "========================================"
-          echo
-          echo "Clone berhasil."
-          echo "Struktur source sudah tervalidasi."
-          echo "KernelSU submodule sudah dicoba di-init."
-          echo
-          echo "Build script aktual sudah dicetak di log."
-          echo "========================================"
+
+          if [ -d out ]; then
+            find out -maxdepth 6 -type f \
+              \( \
+                -name "Image" \
+                -o -name "Image.gz" \
+                -o -name "*.dtb" \
+                -o -name "*.dtbo" \
+                -o -name "*.ko" \
+              \) \
+              -print
+          else
+            echo "out/ does not exist"
+          fi
+
+      - name: Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta9-x110-kernel
+          path: |
+            gta9/out/**
+          if-no-files-found: warn
