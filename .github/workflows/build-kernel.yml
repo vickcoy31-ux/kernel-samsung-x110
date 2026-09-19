@@ -16,7 +16,15 @@ jobs:
         run: |
           set -eux
 
+          echo "========================================"
+          echo "UPDATE APT"
+          echo "========================================"
+
           sudo apt-get update
+
+          echo "========================================"
+          echo "INSTALL BASE DEPENDENCIES"
+          echo "========================================"
 
           sudo apt-get install -y \
             git \
@@ -24,7 +32,6 @@ jobs:
             wget \
             python3 \
             python3-pip \
-            python3-lib2to3 \
             bc \
             bison \
             flex \
@@ -48,12 +55,22 @@ jobs:
             python3-setuptools
 
           echo "========================================"
-          echo "DEPENDENCIES INSTALLED"
+          echo "BASE DEPENDENCIES OK"
           echo "========================================"
 
           python3 --version
-          command -v 2to3
           git --version
+          gcc --version
+
+          echo "========================================"
+          echo "CHECK PYTHON LIB2TO3"
+          echo "========================================"
+
+          python3 -c "import lib2to3; print('lib2to3 OK')"
+
+          echo "========================================"
+          echo "DEPENDENCIES COMPLETE"
+          echo "========================================"
 
 
       # ============================================================
@@ -62,6 +79,10 @@ jobs:
       - name: Clone GTA9 Source
         run: |
           set -eux
+
+          echo "========================================"
+          echo "CLONE GTA9"
+          echo "========================================"
 
           rm -rf gta9
 
@@ -93,6 +114,10 @@ jobs:
         working-directory: gta9
         run: |
           set -eux
+
+          echo "========================================"
+          echo "INITIALIZE KERNELSU"
+          echo "========================================"
 
           git submodule sync --recursive
 
@@ -131,7 +156,7 @@ jobs:
           ls -lah
 
           echo "========================================"
-          echo "CREATE COMPATIBILITY SYMLINKS"
+          echo "CREATE SYMLINKS"
           echo "========================================"
 
           if [ ! -e kernel-5.10 ]; then
@@ -152,15 +177,11 @@ jobs:
           test -f kernel-5.10/Makefile
           test -f build/build.sh
 
-          echo "========================================"
           echo "BUILD SYSTEM FOUND"
-          echo "========================================"
-
-          ls -lh build/build.sh
 
 
       # ============================================================
-      # 5. DOWNLOAD ANDROID CLANG r416183b
+      # 5. DOWNLOAD CLANG
       # ============================================================
       - name: Download Android Clang r416183b
         working-directory: gta9
@@ -168,17 +189,13 @@ jobs:
           set -eux
 
           echo "========================================"
-          echo "PREPARE CLANG DIRECTORY"
+          echo "DOWNLOAD CLANG r416183b"
           echo "========================================"
 
           mkdir -p \
             prebuilts-master/clang/host/linux-x86
 
           cd prebuilts-master/clang/host/linux-x86
-
-          echo "========================================"
-          echo "DOWNLOAD CLANG r416183b"
-          echo "========================================"
 
           curl \
             -L \
@@ -187,10 +204,6 @@ jobs:
             --retry-delay 5 \
             "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12L-gsi/clang-r416183b.tar.gz" \
             -o clang-r416183b.tar.gz
-
-          echo "========================================"
-          echo "EXTRACT CLANG"
-          echo "========================================"
 
           mkdir -p clang-r416183b
 
@@ -204,8 +217,6 @@ jobs:
           echo "VERIFY CLANG"
           echo "========================================"
 
-          ls -lah clang-r416183b
-
           test -x clang-r416183b/bin/clang
           test -x clang-r416183b/bin/ld.lld
 
@@ -213,7 +224,7 @@ jobs:
 
 
       # ============================================================
-      # 6. CONVERT MTK PYTHON GENERATOR
+      # 6. CONVERT PYTHON GENERATOR
       # ============================================================
       - name: Convert MTK Config Generator To Python 3
         working-directory: gta9
@@ -221,21 +232,18 @@ jobs:
           set -eux
 
           echo "========================================"
-          echo "CHECK PYTHON GENERATOR"
+          echo "CHECK GENERATOR"
           echo "========================================"
 
-          grep -n "print '" scripts/gen_build_config.py || true
+          grep -n "print '" \
+            scripts/gen_build_config.py || true
 
           echo "========================================"
-          echo "CHECK 2TO3"
+          echo "CHECK LIB2TO3"
           echo "========================================"
 
-          command -v 2to3
-          2to3 --help >/dev/null
-
-          echo "========================================"
-          echo "BACKUP PYTHON GENERATOR"
-          echo "========================================"
+          python3 \
+            -c "import lib2to3; print('lib2to3 OK')"
 
           cp \
             scripts/gen_build_config.py \
@@ -245,17 +253,20 @@ jobs:
           echo "CONVERT PYTHON 2 -> PYTHON 3"
           echo "========================================"
 
-          2to3 -w scripts/gen_build_config.py
+          python3 \
+            -m lib2to3 \
+            -w \
+            scripts/gen_build_config.py
 
           echo "========================================"
-          echo "VERIFY PYTHON 3 SYNTAX"
+          echo "COMPILE TEST"
           echo "========================================"
 
           python3 \
             -m py_compile \
             scripts/gen_build_config.py
 
-          echo "Generator conversion OK"
+          echo "GENERATOR CONVERSION OK"
 
 
       # ============================================================
@@ -283,14 +294,14 @@ jobs:
             -o ../out/build.config
 
           echo "========================================"
-          echo "GENERATED BUILD CONFIG"
+          echo "BUILD CONFIG"
           echo "========================================"
 
           cat ../out/build.config
 
 
       # ============================================================
-      # 8. PATCH / VERIFY TOOLCHAIN CONFIG
+      # 8. PATCH CLANG PATH
       # ============================================================
       - name: Patch Generated Toolchain Path
         working-directory: gta9
@@ -298,7 +309,7 @@ jobs:
           set -eux
 
           echo "========================================"
-          echo "CHECK GENERATED CONFIG"
+          echo "VERIFY GENERATED CONFIG"
           echo "========================================"
 
           grep -n \
@@ -306,33 +317,25 @@ jobs:
             out/build.config || true
 
           echo "========================================"
-          echo "VERIFY CLANG"
-          echo "========================================"
-
-          test -x \
-            prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/clang
-
-          test -x \
-            prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/ld.lld
-
-          echo "========================================"
-          echo "PATCH CLANG PATH IF NEEDED"
+          echo "PATCH CLANG PATH"
           echo "========================================"
 
           if grep -q "^CLANG_PREBUILT_BIN=" out/build.config; then
+
             sed -i \
               "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin#" \
               out/build.config
+
           else
+
             echo "CLANG_PREBUILT_BIN=${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin" \
               >> out/build.config
+
           fi
 
-          echo "========================================"
-          echo "FINAL CLANG CONFIG"
-          echo "========================================"
-
-          grep -n "CLANG_PREBUILT_BIN" out/build.config
+          grep -n \
+            "CLANG_PREBUILT_BIN" \
+            out/build.config
 
 
       # ============================================================
@@ -362,7 +365,7 @@ jobs:
           export CLANG_PREBUILT_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
           echo "========================================"
-          echo "BUILD ENVIRONMENT"
+          echo "ENVIRONMENT"
           echo "========================================"
 
           echo "ARCH=${ARCH}"
@@ -374,19 +377,19 @@ jobs:
           echo "CLANG_PREBUILT_BIN=${CLANG_PREBUILT_BIN}"
 
           echo "========================================"
-          echo "CLANG VERSION"
+          echo "CLANG"
           echo "========================================"
 
           "${CLANG_PREBUILT_BIN}/clang" --version
 
           echo "========================================"
-          echo "VERIFY BUILD SCRIPT"
+          echo "BUILD SCRIPT"
           echo "========================================"
 
           test -x build/build.sh
 
           echo "========================================"
-          echo "RUN AOSP KERNEL BUILD"
+          echo "RUN BUILD"
           echo "========================================"
 
           ./build/build.sh \
@@ -395,15 +398,20 @@ jobs:
 
 
       # ============================================================
-      # 10. INSPECT BUILD OUTPUT
+      # 10. INSPECT OUTPUT
       # ============================================================
       - name: Inspect Build Output
         if: always()
         working-directory: gta9
         run: |
           echo "========================================"
-          echo "BUILD OUTPUT"
+          echo "INSPECT OUTPUT"
           echo "========================================"
+
+          if [ ! -d out ]; then
+            echo "out directory does not exist"
+            exit 0
+          fi
 
           find out \
             -maxdepth 7 \
@@ -416,17 +424,17 @@ jobs:
               -o -name "*.dtbo" \
               -o -name "*.ko" \
             \) \
-            -print 2>/dev/null || true
+            -print || true
 
           echo "========================================"
-          echo "DIST OUTPUT"
+          echo "DIST"
           echo "========================================"
 
           find out \
             -maxdepth 6 \
             -type f \
             -path "*/dist/*" \
-            -print 2>/dev/null || true
+            -print || true
 
 
       # ============================================================
@@ -438,10 +446,6 @@ jobs:
         run: |
           set -eux
 
-          echo "========================================"
-          echo "PREPARE ARTIFACTS"
-          echo "========================================"
-
           mkdir -p artifact
 
           if [ -f out/kernel-5.10/arch/arm64/boot/Image.gz ]; then
@@ -450,19 +454,25 @@ jobs:
               artifact/Image.gz
           fi
 
-          if [ -d out/kernel-5.10/arch/arm64/boot/dts ]; then
-            find \
-              out/kernel-5.10/arch/arm64/boot/dts \
-              -type f \
-              -name "*.dtb" \
-              -exec cp {} artifact/ \;
+          if [ -f out/arch/arm64/boot/Image.gz ]; then
+            cp \
+              out/arch/arm64/boot/Image.gz \
+              artifact/Image.gz
           fi
 
           if [ -d out/kernel-5.10/arch/arm64/boot/dts ]; then
             find \
               out/kernel-5.10/arch/arm64/boot/dts \
               -type f \
-              -name "*.dtbo" \
+              \( -name "*.dtb" -o -name "*.dtbo" \) \
+              -exec cp {} artifact/ \;
+          fi
+
+          if [ -d out/arch/arm64/boot/dts ]; then
+            find \
+              out/arch/arm64/boot/dts \
+              -type f \
+              \( -name "*.dtb" -o -name "*.dtbo" \) \
               -exec cp {} artifact/ \;
           fi
 
@@ -473,7 +483,7 @@ jobs:
           fi
 
           echo "========================================"
-          echo "ARTIFACT CONTENT"
+          echo "ARTIFACTS"
           echo "========================================"
 
           find artifact \
@@ -491,7 +501,5 @@ jobs:
           name: gta9-x110-kernel
           path: |
             gta9/artifact/**
-            gta9/out/build.config
-            gta9/out/build.config.mtk
-            gta9/out/build.config.gki.aarch64
+            gta9/out/build.config*
           if-no-files-found: warn
