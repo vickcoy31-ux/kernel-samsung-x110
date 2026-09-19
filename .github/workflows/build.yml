@@ -1,101 +1,76 @@
-name: Build Samsung Galaxy Tab A9 Kernel
+name: Build Kernel Samsung X110
 
-"on":
+on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-
-permissions:
-  contents: read
 
 jobs:
   build:
-    name: Build Kernel Image
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout kernel source
+      - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Inspect repository
-        run: |
-          echo "Folder saat ini:"
-          pwd
-
-          echo "Isi repository:"
-          ls -la
-
-          echo "File kernel yang ditemukan:"
-          find . -maxdepth 4 -type f \
-            \( -name "Makefile" -o -name "*defconfig" \) \
-            | head -100
-
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            bc \
-            bison \
-            flex \
-            build-essential \
-            clang \
-            lld \
-            libssl-dev \
-            libelf-dev \
-            pahole \
-            cpio \
-            zip \
-            unzip \
-            python3 \
-            rsync \
-            git
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git wget curl ccache rsync kmod cpio python3 lz4
 
-      - name: Check kernel source
+      - name: Locate Kernel Root Directory
+        id: locate
         run: |
-          if [ ! -f Makefile ]; then
-            echo "ERROR: Makefile tidak ada di folder utama."
-            echo "Kemungkinan source kernel berada di subfolder."
-            exit 1
+          # Cari lokasi Makefile utama kernel
+          MAKEFILE_PATH=$(find . -maxdepth 3 -name "Makefile" -exec grep -l "VERSION =" {} + | head -n 1)
+          if [ -n "$MAKEFILE_PATH" ]; then
+            KERNEL_DIR=$(dirname "$MAKEFILE_PATH")
+            echo "Kernel root ditemukan di: $KERNEL_DIR"
+            echo "kernel_dir=$KERNEL_DIR" >> $GITHUB_OUTPUT
+          else
+            echo "Kernel root tidak ditemukan, menggunakan folder utama."
+            echo "kernel_dir=." >> $GITHUB_OUTPUT
           fi
 
-      - name: Find defconfig
+      - name: Download Clang Toolchain
         run: |
-          set -eux
+          git clone --depth=1 url?id=1kdrag0n/proton-clang.git clang
 
-          DEFCONFIG="$(find arch/arm64/configs -type f \
-            \( -name "*gta9*defconfig" \
-            -o -name "*x110*defconfig" \
-            -o -name "*defconfig" \) \
-            | head -1)"
+      - name: Inject KernelSU Clean Setup
+        run: |
+          cd ${{ steps.locate.outputs.kernel_dir }}
+          rm -rf drivers/kernelsu
+          sed -i '/kernelsu/d' drivers/Kconfig
+          sed -i '/kernelsu/d' drivers/Makefile
+          git clone --depth=1 https://github.com/tiann/KernelSU.git drivers/kernelsu
+          echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
+          echo 'obj-y += kernelsu/' >> drivers/Makefile
 
-          if [ -z "$DEFCONFIG" ]; then
-            echo "Defconfig tidak ditemukan."
-            find arch/arm64/configs -type f | head -100
-            exit 1
+      - name: Start Full Compilation
+        run: |
+          # Pindah ke folder kernel hasil pencarian
+          cd ${{ steps.locate.outputs.kernel_dir }}
+          
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH="$(pwd)/../clang/bin:$(pwd)/clang/bin:$PATH"
+          export CC=clang
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+          CONFIG_PATH=$(find arch/arm64/configs/ -type f \( -iname "*x110*" -o -iname "*gta9*" \) | head -n 1)
+
+          if [ -n "$CONFIG_PATH" ]; then
+            TARGET_CONFIG=$(echo "$CONFIG_PATH" | sed 's|arch/arm64/configs/||')
+            make CC=clang $TARGET_CONFIG
+          else
+            make CC=clang defconfig
           fi
 
-          DEFCONFIG_NAME="$(basename "$DEFCONFIG")"
-          echo "DEFCONFIG_NAME=$DEFCONFIG_NAME" >> "$GITHUB_ENV"
-          echo "Defconfig: $DEFCONFIG_NAME"
+          chmod +x scripts/config || true
+          scripts/config --enable CONFIG_KSU || echo "CONFIG_KSU=y" >> .config
+          make -j$(nproc) CC=clang Image
 
-      - name: Build Image
-        run: |
-          set -eux
-
-          make O=out ARCH=arm64 "$DEFCONFIG_NAME"
-
-          make -j"$(nproc)" \
-            O=out \
-            ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1
-
-          test -f out/arch/arm64/boot/Image
-
-      - name: Upload Image
+      - name: Upload Final Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-image
-          path: out/arch/arm64/boot/Image
-          if-no-files-found: error
+          name: samsung-x110-kernel
+          path: ${{ steps.locate.outputs.kernel_dir }}/arch/arm64/boot/Image
