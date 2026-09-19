@@ -1,3 +1,4 @@
+```yaml
 name: Build Samsung Galaxy Tab A9 X110 Kernel
 
 on:
@@ -14,6 +15,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
+
           sudo apt-get install -y \
             git \
             build-essential \
@@ -28,6 +30,7 @@ jobs:
             libdw-dev \
             libxml2 \
             libxml2-dev \
+            libc6-dev \
             python3 \
             python3-distutils \
             python3-pip \
@@ -67,6 +70,7 @@ jobs:
           test -d KernelSU
           test -f kernel/configs/ot11.config
 
+          echo "=== KERNELSU CONFIG ==="
           grep -n "CONFIG_KSU" kernel/configs/ot11.config
 
       # ============================================================
@@ -100,7 +104,8 @@ jobs:
         run: |
           set -eux
 
-          mkdir -p prebuilts-master/clang/host/linux-x86/clang-r416183b
+          mkdir -p \
+            prebuilts-master/clang/host/linux-x86/clang-r416183b
 
           wget -q \
             -O /tmp/clang-r416183b.tar.gz \
@@ -110,22 +115,18 @@ jobs:
             /tmp/clang-r416183b.tar.gz \
             -C prebuilts-master/clang/host/linux-x86/clang-r416183b
 
-          test -x \
-            prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/clang
+          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
-          test -x \
-            prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/clang++
+          test -x "${CLANG_BIN}/clang"
+          test -x "${CLANG_BIN}/clang++"
+          test -x "${CLANG_BIN}/lld"
+          test -x "${CLANG_BIN}/ld.lld"
 
-          echo "CLANG:"
-          prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/clang --version
-
-          echo
-          echo "LLD:"
-          ls -l \
-            prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/lld
+          echo "=== CLANG ==="
+          "${CLANG_BIN}/clang" --version
 
       # ============================================================
-      # 6. CREATE LLD LIBXML2 COMPATIBILITY LIBRARY
+      # 6. LLD LIBXML2 COMPATIBILITY
       # ============================================================
       - name: Prepare LLD libxml2 compatibility
         working-directory: gta9
@@ -138,15 +139,26 @@ jobs:
           mkdir -p "${COMPAT_DIR}"
 
           echo "=== SYSTEM LIBXML2 ==="
+
           ldconfig -p | grep 'libxml2.so.2' || true
 
-          LIBXML2_REAL="$(ldconfig -p | awk '$1 == "libxml2.so.2" {print $NF; exit}')"
+          LIBXML2_REAL="$(
+            ldconfig -p |
+            awk '$1 == "libxml2.so.2" {print $NF; exit}'
+          )"
 
           if [ -z "${LIBXML2_REAL}" ]; then
-            LIBXML2_REAL="$(find /usr/lib /lib \
-              -type f \
-              \( -name 'libxml2.so.2' -o -name 'libxml2.so.2.*' \) \
-              2>/dev/null | head -n 1)"
+            LIBXML2_REAL="$(
+              find /usr/lib /lib \
+                -type f \
+                \( \
+                  -name 'libxml2.so.2' \
+                  -o \
+                  -name 'libxml2.so.2.*' \
+                \) \
+                2>/dev/null |
+                head -n 1
+            )"
           fi
 
           echo "Resolved libxml2:"
@@ -155,68 +167,50 @@ jobs:
           test -n "${LIBXML2_REAL}"
           test -f "${LIBXML2_REAL}"
 
-          # Android Clang r416183b LLD asks specifically for:
-          # libxml2.so.2.9.10
-          #
-          # Ubuntu 22.04 normally provides a compatible libxml2.so.2.
-          # Create a private compatibility filename rather than replacing
-          # the system library.
           ln -sfn \
             "${LIBXML2_REAL}" \
             "${COMPAT_DIR}/libxml2.so.2.9.10"
 
           echo
           echo "=== COMPAT LIBRARY ==="
-          ls -la "${COMPAT_DIR}/"
+          ls -la "${COMPAT_DIR}"
 
           echo
-          echo "=== LLD NEEDED LIBRARIES ==="
-          readelf -d "${CLANG_BIN}/lld" | grep NEEDED || true
+          echo "=== LLD DEPENDENCIES ==="
+          readelf -d "${CLANG_BIN}/lld" |
+            grep NEEDED || true
 
           echo
-          echo "=== LDD WITH COMPAT PATH ==="
+          echo "=== LDD LLD ==="
           LD_LIBRARY_PATH="${COMPAT_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
             ldd "${CLANG_BIN}/lld" || true
 
-          # Persist for all following GitHub Actions steps.
-          echo "LD_LIBRARY_PATH=${COMPAT_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >> "${GITHUB_ENV}"
-
-      # ============================================================
-      # 7. VERIFY ORIGINAL CLANG
-      # ============================================================
-      - name: Verify Android Clang
-        working-directory: gta9
-        run: |
-          set -eux
-
-          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
-
-          echo "=== CLANG VERSION ==="
-          "${CLANG_BIN}/clang" --version
-
           echo
-          echo "=== CLANG++ VERSION ==="
-          "${CLANG_BIN}/clang++" --version
-
-          echo
-          echo "=== LLD VERSION WITH COMPAT ==="
-          LD_LIBRARY_PATH="${CLANG_BIN}/compat-libs${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+          echo "=== LLD TEST ==="
+          LD_LIBRARY_PATH="${COMPAT_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
             "${CLANG_BIN}/ld.lld" --version
 
+          echo \
+            "LD_LIBRARY_PATH=${COMPAT_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+            >> "${GITHUB_ENV}"
+
       # ============================================================
-      # 8. GENERATOR PYTHON 2 -> PYTHON 3
+      # 7. CONVERT PYTHON 2 BUILD GENERATOR
       # ============================================================
-      - name: Convert build config generator to Python 3
+      - name: Convert build config generator
         working-directory: gta9
         run: |
           set -eux
 
-          python3 -m lib2to3 -w scripts/gen_build_config.py
+          python3 -m lib2to3 \
+            -w \
+            scripts/gen_build_config.py
 
-          python3 -m py_compile scripts/gen_build_config.py
+          python3 -m py_compile \
+            scripts/gen_build_config.py
 
       # ============================================================
-      # 9. GENERATE BUILD CONFIG
+      # 8. GENERATE BUILD CONFIG
       # ============================================================
       - name: Generate build config
         working-directory: gta9
@@ -234,32 +228,33 @@ jobs:
 
           test -f out/build.config
 
-          echo "=== GENERATED BUILD CONFIG ==="
+          echo "=== BUILD CONFIG ==="
           sed -n '1,240p' out/build.config
 
       # ============================================================
-      # 10. PATCH CLANG PATH
+      # 9. PATCH CLANG PATH
       # ============================================================
-      - name: Patch generated build config
+      - name: Patch build config
         working-directory: gta9
         run: |
           set -eux
 
           CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
-          sed -i \
-            "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=${CLANG_BIN}#" \
-            out/build.config
-
-          if ! grep -q "^CLANG_PREBUILT_BIN=" out/build.config; then
-            echo "CLANG_PREBUILT_BIN=${CLANG_BIN}" >> out/build.config
+          if grep -q '^CLANG_PREBUILT_BIN=' out/build.config; then
+            sed -i \
+              "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=${CLANG_BIN}#" \
+              out/build.config
+          else
+            echo "CLANG_PREBUILT_BIN=${CLANG_BIN}" \
+              >> out/build.config
           fi
 
-          echo "=== CLANG CONFIG ==="
+          echo "=== CLANG PATH ==="
           grep -n "CLANG_PREBUILT_BIN" out/build.config
 
       # ============================================================
-      # 11. PREPARE INTERNAL BUILD TOOLS
+      # 10. PREPARE INTERNAL HOST TOOLS
       # ============================================================
       - name: Prepare internal build tools
         working-directory: gta9
@@ -272,97 +267,124 @@ jobs:
           mkdir -p "${BUILD_TOOLS_DIR}"
 
           # --------------------------------------------------------
-          # HOST COMMANDS
+          # IMPORTANT:
+          # Resolve system commands BEFORE putting them into the
+          # restricted internal PATH.
           # --------------------------------------------------------
-          for cmd in \
-            bash \
-            cat \
-            cp \
-            cpio \
-            cut \
-            date \
-            dirname \
-            echo \
-            find \
-            grep \
-            head \
-            ln \
-            mkdir \
-            mktemp \
-            mv \
-            nproc \
-            readlink \
-            rm \
-            sed \
-            sort \
-            stat \
-            tail \
-            tar \
-            test \
-            touch \
-            tr \
-            uname \
-            uniq \
-            xargs \
-            which \
-            file \
-            awk \
-            diff \
-            cmp \
-            python3
-          do
-            REAL="$(command -v "${cmd}" || true)"
 
-            if [ -n "${REAL}" ]; then
-              ln -sfn "${REAL}" "${BUILD_TOOLS_DIR}/${cmd}"
+          declare -A HOST_COMMANDS
+
+          HOST_COMMANDS[bash]="/usr/bin/bash"
+          HOST_COMMANDS[cat]="/usr/bin/cat"
+          HOST_COMMANDS[cp]="/usr/bin/cp"
+          HOST_COMMANDS[cpio]="/usr/bin/cpio"
+          HOST_COMMANDS[cut]="/usr/bin/cut"
+          HOST_COMMANDS[date]="/usr/bin/date"
+          HOST_COMMANDS[dirname]="/usr/bin/dirname"
+          HOST_COMMANDS[echo]="/usr/bin/echo"
+          HOST_COMMANDS[env]="/usr/bin/env"
+          HOST_COMMANDS[expr]="/usr/bin/expr"
+          HOST_COMMANDS[file]="/usr/bin/file"
+          HOST_COMMANDS[find]="/usr/bin/find"
+          HOST_COMMANDS[grep]="/usr/bin/grep"
+          HOST_COMMANDS[head]="/usr/bin/head"
+          HOST_COMMANDS[ln]="/usr/bin/ln"
+          HOST_COMMANDS[mkdir]="/usr/bin/mkdir"
+          HOST_COMMANDS[mktemp]="/usr/bin/mktemp"
+          HOST_COMMANDS[mv]="/usr/bin/mv"
+          HOST_COMMANDS[nproc]="/usr/bin/nproc"
+          HOST_COMMANDS[pwd]="/usr/bin/pwd"
+          HOST_COMMANDS[readlink]="/usr/bin/readlink"
+          HOST_COMMANDS[realpath]="/usr/bin/realpath"
+          HOST_COMMANDS[rm]="/usr/bin/rm"
+          HOST_COMMANDS[sed]="/usr/bin/sed"
+          HOST_COMMANDS[sort]="/usr/bin/sort"
+          HOST_COMMANDS[stat]="/usr/bin/stat"
+          HOST_COMMANDS[tail]="/usr/bin/tail"
+          HOST_COMMANDS[tar]="/usr/bin/tar"
+          HOST_COMMANDS[tr]="/usr/bin/tr"
+          HOST_COMMANDS[true]="/usr/bin/true"
+          HOST_COMMANDS[uname]="/usr/bin/uname"
+          HOST_COMMANDS[uniq]="/usr/bin/uniq"
+          HOST_COMMANDS[which]="/usr/bin/which"
+          HOST_COMMANDS[xargs]="/usr/bin/xargs"
+          HOST_COMMANDS[awk]="/usr/bin/awk"
+          HOST_COMMANDS[diff]="/usr/bin/diff"
+          HOST_COMMANDS[cmp]="/usr/bin/cmp"
+          HOST_COMMANDS[printf]="/usr/bin/printf"
+          HOST_COMMANDS[basename]="/usr/bin/basename"
+          HOST_COMMANDS[sh]="/usr/bin/sh"
+
+          for cmd in "${!HOST_COMMANDS[@]}"; do
+            real="${HOST_COMMANDS[$cmd]}"
+
+            if [ -x "${real}" ]; then
+              ln -sfn \
+                "${real}" \
+                "${BUILD_TOOLS_DIR}/${cmd}"
             fi
           done
 
           # --------------------------------------------------------
           # MAKE
           # --------------------------------------------------------
-          ln -sfn /usr/bin/make "${BUILD_TOOLS_DIR}/make"
+
+          ln -sfn \
+            /usr/bin/make \
+            "${BUILD_TOOLS_DIR}/make"
 
           # --------------------------------------------------------
-          # CLANG WRAPPERS + REAL BINARIES
+          # CLANG
           # --------------------------------------------------------
-          cp -f "${CLANG_BIN}/clang" "${BUILD_TOOLS_DIR}/clang"
-          cp -f "${CLANG_BIN}/clang++" "${BUILD_TOOLS_DIR}/clang++"
+
+          cp -f \
+            "${CLANG_BIN}/clang" \
+            "${BUILD_TOOLS_DIR}/clang"
+
+          cp -f \
+            "${CLANG_BIN}/clang++" \
+            "${BUILD_TOOLS_DIR}/clang++"
 
           chmod +x \
             "${BUILD_TOOLS_DIR}/clang" \
             "${BUILD_TOOLS_DIR}/clang++"
 
-          # clang wrapper expects clang.real next to it
-          ln -sfn clang-12 \
-            "${BUILD_TOOLS_DIR}/clang.real"
-
-          # clang++ wrapper expects clang++.real
-          ln -sfn clang.real \
-            "${BUILD_TOOLS_DIR}/clang++.real"
-
-          # Actual clang-12 binary
           if [ -f "${CLANG_BIN}/clang-12" ]; then
-            cp -f "${CLANG_BIN}/clang-12" \
+            cp -f \
+              "${CLANG_BIN}/clang-12" \
               "${BUILD_TOOLS_DIR}/clang-12"
 
             chmod +x \
               "${BUILD_TOOLS_DIR}/clang-12"
           fi
 
+          ln -sfn \
+            clang-12 \
+            "${BUILD_TOOLS_DIR}/clang.real"
+
+          ln -sfn \
+            clang.real \
+            "${BUILD_TOOLS_DIR}/clang++.real"
+
           # --------------------------------------------------------
           # LLD
           # --------------------------------------------------------
-          cp -f "${CLANG_BIN}/lld" \
+
+          cp -f \
+            "${CLANG_BIN}/lld" \
             "${BUILD_TOOLS_DIR}/lld"
 
           chmod +x \
             "${BUILD_TOOLS_DIR}/lld"
 
-          ln -sfn lld \
+          ln -sfn \
+            lld \
             "${BUILD_TOOLS_DIR}/ld.lld"
 
-          # lld may also expect companion llvm tools.
+          # --------------------------------------------------------
+          # LLVM UTILITIES
+          # --------------------------------------------------------
+
           for tool in \
             llvm-ar \
             llvm-nm \
@@ -375,18 +397,23 @@ jobs:
             llvm-strings
           do
             if [ -e "${CLANG_BIN}/${tool}" ]; then
-              cp -f "${CLANG_BIN}/${tool}" \
+              cp -f \
+                "${CLANG_BIN}/${tool}" \
                 "${BUILD_TOOLS_DIR}/${tool}"
-              chmod +x "${BUILD_TOOLS_DIR}/${tool}"
+
+              chmod +x \
+                "${BUILD_TOOLS_DIR}/${tool}"
             fi
           done
 
           echo
-          echo "=== INTERNAL TOOLS ==="
-          ls -la "${BUILD_TOOLS_DIR}" | head -n 100
+          echo "=== INTERNAL TOOL COUNT ==="
+
+          ls -la "${BUILD_TOOLS_DIR}" |
+            head -n 150
 
       # ============================================================
-      # 12. VERIFY INTERNAL TOOLS
+      # 11. VERIFY INTERNAL TOOLS + HOST COMPILER
       # ============================================================
       - name: Verify internal tools
         working-directory: gta9
@@ -394,6 +421,7 @@ jobs:
           set -eux
 
           BUILD_TOOLS_DIR="${GITHUB_WORKSPACE}/gta9/build/build-tools/path/linux-x86"
+          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
           echo "========================================"
           echo "INTERNAL TOOLS"
@@ -401,13 +429,11 @@ jobs:
 
           echo
           echo "=== MAKE ==="
-          ls -la "${BUILD_TOOLS_DIR}/make"
-          readlink -f "${BUILD_TOOLS_DIR}/make"
-          "${BUILD_TOOLS_DIR}/make" --version
+          test -x "${BUILD_TOOLS_DIR}/make"
+          "${BUILD_TOOLS_DIR}/make" --version | head -n 1
 
           echo
           echo "=== CLANG ==="
-          ls -la "${BUILD_TOOLS_DIR}/clang"
           test -x "${BUILD_TOOLS_DIR}/clang"
 
           echo
@@ -416,35 +442,12 @@ jobs:
 
           echo
           echo "=== CLANG++ ==="
-          ls -la "${BUILD_TOOLS_DIR}/clang++"
           test -x "${BUILD_TOOLS_DIR}/clang++"
 
           echo
-          echo "=== CLANG++ REAL ==="
-          ls -la "${BUILD_TOOLS_DIR}/clang++.real"
-
-          echo
           echo "=== LLD ==="
-          ls -la "${BUILD_TOOLS_DIR}/lld"
-
-          echo
-          echo "=== LD.LLD ==="
-          ls -la "${BUILD_TOOLS_DIR}/ld.lld"
-
-          echo
-          echo "=== RESOLVED LLD ==="
-          readlink -f "${BUILD_TOOLS_DIR}/lld"
-
-          echo
-          echo "=== RESOLVED LD.LLD ==="
-          readlink -f "${BUILD_TOOLS_DIR}/ld.lld"
-
           test -x "${BUILD_TOOLS_DIR}/lld"
           test -x "${BUILD_TOOLS_DIR}/ld.lld"
-
-          echo
-          echo "=== LLD DEPENDENCIES ==="
-          ldd "${BUILD_TOOLS_DIR}/lld" || true
 
           echo
           echo "=== LLD VERSION ==="
@@ -454,37 +457,58 @@ jobs:
           echo "=== CLANG VERSION ==="
           "${BUILD_TOOLS_DIR}/clang" --version
 
+          echo
+          echo "=== CLANG HOST INCLUDE SEARCH ==="
+
+          echo | \
+            "${CLANG_BIN}/clang" \
+              --gcc-toolchain=/usr \
+              -E \
+              -v \
+              -x c \
+              - \
+              >/tmp/clang-preprocessor.out \
+              2>/tmp/clang-includes.txt || true
+
+          cat /tmp/clang-includes.txt
+
+          echo
+          echo "=== TEST sys/types.h ==="
+
+          printf '#include <sys/types.h>\nint main(void){return 0;}\n' \
+            >/tmp/test-host.c
+
+          "${CLANG_BIN}/clang" \
+            --gcc-toolchain=/usr \
+            -fsyntax-only \
+            /tmp/test-host.c
+
+          echo
+          echo "sys/types.h OK"
+
       # ============================================================
-      # 13. VERIFY CONFIG
+      # 12. VERIFY KERNELSU + CONFIG
       # ============================================================
-      - name: Verify KernelSU and build config
+      - name: Verify KernelSU and config
         working-directory: gta9
         run: |
           set -eux
 
           echo "=== KERNELSU ==="
-          grep -n "CONFIG_KSU=y" kernel/configs/ot11.config
-
-          echo
-          echo "=== DEFCONFIG ==="
-          grep -n \
-            -E \
-            'CONFIG_BUILD_CONFIG_FILE|CONFIG_KSU|CONFIG_ARCH_MEDIATEK|CONFIG_CUSTOM_PROJECT_OT11' \
-            arch/arm64/configs/gta9_00_defconfig \
-            kernel/configs/ot11.config \
-            kernel/configs/ot11_wifi.config \
-            kernel/configs/ot11_data.config
+          grep -n "CONFIG_KSU=y" \
+            kernel/configs/ot11.config
 
           echo
           echo "=== BUILD CONFIG ==="
           test -f out/build.config
+
           grep -n \
             -E \
-            'KERNEL_DIR|CLANG_PREBUILT_BIN|ARCH=|CROSS_COMPILE=|LLVM_IAS' \
+            'KERNEL_DIR|CLANG_PREBUILT_BIN|ARCH=|CROSS_COMPILE=' \
             out/build.config || true
 
       # ============================================================
-      # 14. BUILD
+      # 13. BUILD KERNEL
       # ============================================================
       - name: Build kernel
         working-directory: gta9
@@ -497,14 +521,17 @@ jobs:
           BUILD_CONFIG: out/build.config
           OUT_DIR: out
           DIST_DIR: out/dist
-          HOSTCC: /home/runner/work/kernel-samsung-x110/kernel-samsung-x110/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/clang
-          HOSTCXX: /home/runner/work/kernel-samsung-x110/kernel-samsung-x110/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/clang++
-          HOSTLD: /home/runner/work/kernel-samsung-x110/kernel-samsung-x110/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/ld.lld
-          LD: /home/runner/work/kernel-samsung-x110/kernel-samsung-x110/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/ld.lld
+          HOSTCFLAGS: "--gcc-toolchain=/usr"
+          HOSTCXXFLAGS: "--gcc-toolchain=/usr"
+          KBUILD_HOSTCFLAGS: "--gcc-toolchain=/usr"
+          KBUILD_HOSTCXXFLAGS: "--gcc-toolchain=/usr"
         run: |
           set -eux
 
+          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
+
           echo "=== BUILD ENVIRONMENT ==="
+
           echo "ARCH=${ARCH}"
           echo "CROSS_COMPILE=${CROSS_COMPILE}"
           echo "CROSS_COMPILE_COMPAT=${CROSS_COMPILE_COMPAT}"
@@ -515,24 +542,49 @@ jobs:
           echo "DIST_DIR=${DIST_DIR}"
 
           echo
-          echo "=== LLD BEFORE BUILD ==="
-          ld.lld --version || true
+          echo "=== LLD ==="
+
+          BUILD_TOOLS_DIR="${GITHUB_WORKSPACE}/gta9/build/build-tools/path/linux-x86"
+
+          "${BUILD_TOOLS_DIR}/ld.lld" --version
 
           echo
-          echo "=== CLANG BEFORE BUILD ==="
-          clang --version || true
+          echo "=== ANDROID CLANG ==="
+
+          "${CLANG_BIN}/clang" --version
+
+          echo
+          echo "=== HOST HEADER TEST ==="
+
+          printf '#include <sys/types.h>\nint main(void){return 0;}\n' \
+            >/tmp/test-host.c
+
+          "${CLANG_BIN}/clang" \
+            --gcc-toolchain=/usr \
+            -fsyntax-only \
+            /tmp/test-host.c
+
+          echo
+          echo "HOST HEADER TEST PASSED"
 
           echo
           echo "=== BUILD CONFIG EXISTS ==="
+
           test -f out/build.config
 
           echo
           echo "=== START BUILD ==="
 
-          ./build/build.sh LLVM_IAS=1 -j$(($(nproc)-1))
+          ./build/build.sh \
+            LLVM_IAS=1 \
+            HOSTCFLAGS="--gcc-toolchain=/usr" \
+            HOSTCXXFLAGS="--gcc-toolchain=/usr" \
+            KBUILD_HOSTCFLAGS="--gcc-toolchain=/usr" \
+            KBUILD_HOSTCXXFLAGS="--gcc-toolchain=/usr" \
+            -j$(($(nproc)-1))
 
       # ============================================================
-      # 15. INSPECT OUTPUT
+      # 14. INSPECT OUTPUT
       # ============================================================
       - name: Inspect build output
         if: always()
@@ -546,14 +598,27 @@ jobs:
 
           echo
           echo "=== OUT ==="
-          find out -maxdepth 5 -type f 2>/dev/null | sort | head -n 300
+
+          find out \
+            -maxdepth 6 \
+            -type f \
+            2>/dev/null |
+            sort |
+            head -n 400
 
           echo
           echo "=== DIST ==="
-          find out/dist -maxdepth 5 -type f 2>/dev/null | sort | head -n 300
+
+          find out/dist \
+            -maxdepth 6 \
+            -type f \
+            2>/dev/null |
+            sort |
+            head -n 400
 
           echo
-          echo "=== KERNEL IMAGE ==="
+          echo "=== KERNEL OUTPUTS ==="
+
           find out \
             -type f \
             \( \
@@ -563,10 +628,11 @@ jobs:
               -o -name '*.dtb' \
               -o -name '*.dtbo' \
             \) \
-            2>/dev/null | sort
+            2>/dev/null |
+            sort
 
       # ============================================================
-      # 16. PACKAGE RELEASE
+      # 15. RELEASE
       # ============================================================
       - name: Prepare release files
         if: success()
@@ -587,11 +653,12 @@ jobs:
             -exec cp -v {} out/release/ \;
 
           echo
-          echo "=== RELEASE FILES ==="
+          echo "=== RELEASE ==="
+
           ls -lah out/release
 
       # ============================================================
-      # 17. UPLOAD ARTIFACT
+      # 16. UPLOAD KERNEL
       # ============================================================
       - name: Upload kernel artifact
         if: success()
@@ -602,7 +669,7 @@ jobs:
           if-no-files-found: error
 
       # ============================================================
-      # 18. DEBUG ARTIFACT IF BUILD FAILS
+      # 17. DEBUG
       # ============================================================
       - name: Collect debug information
         if: failure()
@@ -612,77 +679,59 @@ jobs:
 
           mkdir -p debug
 
-          echo "=== BUILD CONFIG ===" \
-            > debug/build-debug.txt
-
-          cat out/build.config \
-            >> debug/build-debug.txt \
-            2>&1
-
-          echo \
-            >> debug/build-debug.txt
-
-          echo "=== INTERNAL TOOLCHAIN ===" \
-            >> debug/build-debug.txt
-
           BUILD_TOOLS_DIR="${GITHUB_WORKSPACE}/gta9/build/build-tools/path/linux-x86"
+          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
-          ls -la "${BUILD_TOOLS_DIR}" \
-            >> debug/build-debug.txt \
-            2>&1
+          {
+            echo "========================================"
+            echo "BUILD DEBUG"
+            echo "========================================"
 
-          echo \
-            >> debug/build-debug.txt
+            echo
+            echo "=== BUILD CONFIG ==="
+            cat out/build.config
 
-          echo "=== LDD LLD ===" \
-            >> debug/build-debug.txt
+            echo
+            echo "=== INTERNAL TOOLS ==="
+            ls -la "${BUILD_TOOLS_DIR}"
 
-          ldd "${BUILD_TOOLS_DIR}/lld" \
-            >> debug/build-debug.txt \
-            2>&1
+            echo
+            echo "=== LDD LLD ==="
+            ldd "${BUILD_TOOLS_DIR}/lld"
 
-          echo \
-            >> debug/build-debug.txt
+            echo
+            echo "=== LLD VERSION ==="
+            "${BUILD_TOOLS_DIR}/ld.lld" --version
 
-          echo "=== LLD VERSION ===" \
-            >> debug/build-debug.txt
+            echo
+            echo "=== CLANG VERSION ==="
+            "${CLANG_BIN}/clang" --version
 
-          "${BUILD_TOOLS_DIR}/ld.lld" --version \
-            >> debug/build-debug.txt \
-            2>&1
+            echo
+            echo "=== LIBXML2 ==="
+            ldconfig -p | grep libxml2
 
-          echo \
-            >> debug/build-debug.txt
+            echo
+            echo "=== CLANG INCLUDE PATHS ==="
+            cat /tmp/clang-includes.txt 2>/dev/null || true
 
-          echo "=== CLANG VERSION ===" \
-            >> debug/build-debug.txt
+            echo
+            echo "=== KERNELSU ==="
+            grep -n "CONFIG_KSU" kernel/configs/ot11.config
 
-          "${BUILD_TOOLS_DIR}/clang" --version \
-            >> debug/build-debug.txt \
-            2>&1
+            echo
+            echo "=== OUTPUT FILES ==="
+            find out \
+              -maxdepth 6 \
+              -type f \
+              2>/dev/null |
+              sort
 
-          echo \
-            >> debug/build-debug.txt
+          } > debug/build-debug.txt 2>&1
 
-          echo "=== LIBXML2 ===" \
-            >> debug/build-debug.txt
-
-          ldconfig -p | grep libxml2 \
-            >> debug/build-debug.txt \
-            2>&1
-
-          echo \
-            >> debug/build-debug.txt
-
-          echo "=== FILES ===" \
-            >> debug/build-debug.txt
-
-          find out \
-            -maxdepth 5 \
-            -type f \
-            >> debug/build-debug.txt \
-            2>&1
-
+      # ============================================================
+      # 18. UPLOAD DEBUG
+      # ============================================================
       - name: Upload debug artifact
         if: failure()
         uses: actions/upload-artifact@v4
@@ -690,3 +739,4 @@ jobs:
           name: gta9-x110-build-debug
           path: gta9/debug/
           if-no-files-found: warn
+```
