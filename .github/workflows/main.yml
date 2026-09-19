@@ -16,7 +16,7 @@ jobs:
       - name: Install Host Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ca-certificates ccache clang curl flex gcc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev libssl-dev libxml2 libxml2-dev lld make python3 python3-distutils rsync unzip wget xz-utils zip coreutils
+          sudo apt-get install -y bc bison build-essential ca-certificates ccache clang curl flex gcc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev libssl-dev libxml2 libxml2-dev lld make python3 python3-distutils rsync unzip wget xz-utils zip coreutils linux-libc-dev
 
       # 2. CLONE SOURCE & KERNELSU
       - name: Clone Source & Submodules
@@ -60,7 +60,6 @@ jobs:
 
           ln -sf /usr/bin/realpath "$TOOL_DIR/realpath"
 
-          # Menambahkan 'echo', 'printf', dan 'sleep' agar xargs tidak error
           COMMANDS="echo printf sleep ar as awk basename bash cat chmod cmp cp cut date dirname du env expr find grep head ld ln mkdir mktemp mv nproc objcopy objdump od printf pwd readlink rm sed sort stat tail tar test touch tr uname uniq wc which xargs zip make gcc g++ aarch64-linux-gnu-gcc aarch64-linux-gnu-g++ arm-linux-gnueabi-gcc arm-linux-gnueabi-g++"
           for cmd in $COMMANDS; do
             target="$(type -P "$cmd" || true)"
@@ -88,7 +87,7 @@ jobs:
         run: |
           cd gta9
           CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}"
-          CLANG_RES=$("$CLANG_ROOT/bin/clang-12" -print-resource-dir)
+          CLANG_RES=$("$CLANG_ROOT/bin/clang-12" -print-resource-dir")
           GCC_MACH="$(gcc -dumpmachine)"
           GCC_VER="$(gcc -dumpversion)"
           
@@ -111,14 +110,16 @@ jobs:
           OUT_DIR: out
           DIST_DIR: out
           BUILD_CONFIG: out/build.config
-          HOSTCC: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang
-          HOSTCXX: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang++
-          HOSTLD: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/ld.lld
+          # KUNCI PERBAIKAN: Gunakan GCC untuk HOST tools agar tidak error sys/types.h
+          HOSTCC: /usr/bin/gcc
+          HOSTCXX: /usr/bin/g++
+          HOSTLD: /usr/bin/gcc
           KCFLAGS: "-Wno-error"
         run: |
           set -eux
           cd gta9
-          ./build/build.sh LLVM_IAS=1 -j"$(($(nproc)-1))"
+          # Kita paksa make menggunakan gcc untuk host tools via command line argument
+          ./build/build.sh LLVM_IAS=1 HOSTCC=gcc HOSTCXX=g++ HOSTLD=gcc -j"$(($(nproc)-1))"
 
       # 8. RESULT EXTRACTION
       - name: Package and Upload
