@@ -1,34 +1,414 @@
-      - name: Locate Build Infrastructure
+name: GTA9 X110 Kernel Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Install Dependencies
+        run: |
+          set -eux
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            git \
+            curl \
+            wget \
+            python3 \
+            python3-pip \
+            bc \
+            bison \
+            flex \
+            build-essential \
+            ccache \
+            gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi \
+            libssl-dev \
+            libelf-dev \
+            libdw-dev \
+            dwarves \
+            pahole \
+            rsync \
+            unzip \
+            zip \
+            lz4 \
+            zstd \
+            cpio \
+            device-tree-compiler
+
+      - name: Clone GTA9 Source
+        run: |
+          set -eux
+
+          rm -rf gta9
+
+          git clone \
+            --depth=1 \
+            --branch 15.0 \
+            https://github.com/prabhatkrmishra/kernel_samsung_gta9.git \
+            gta9
+
+          cd gta9
+
+          echo "========================================"
+          echo "SOURCE COMMIT"
+          echo "========================================"
+
+          git rev-parse HEAD
+
+          echo "========================================"
+          echo "SOURCE ROOT"
+          echo "========================================"
+
+          ls -lah
+
+          echo "========================================"
+          echo "VALIDATE SOURCE"
+          echo "========================================"
+
+          test -f Makefile
+          test -d arch
+          test -d drivers
+          test -d scripts
+          test -d setup
+          test -f build.config.common
+          test -f build.config.mtk.aarch64
+
+          echo "Source validation PASSED."
+
+      - name: Initialize KernelSU
         working-directory: gta9
         run: |
           set -eux
 
-          echo "=== ALL BUILD.SH ==="
-          find .. -type f -name "build.sh" -print
+          echo "========================================"
+          echo "GIT SUBMODULES"
+          echo "========================================"
 
-          echo "=== ALL KERNEL-5.10 REFERENCES ==="
+          cat .gitmodules || true
+
+          git submodule sync --recursive
+          git submodule update --init --depth=1
+
+          echo "========================================"
+          echo "KERNELSU"
+          echo "========================================"
+
+          ls -lah KernelSU
+
+          echo "========================================"
+          echo "KERNELSU COMMIT"
+          echo "========================================"
+
+          git -C KernelSU rev-parse HEAD
+
+          echo "KernelSU submodule initialized successfully."
+
+      - name: Verify Kernel Source
+        working-directory: gta9
+        run: |
+          set -eux
+
+          echo "========================================"
+          echo "KERNEL VERSION"
+          echo "========================================"
+
+          make kernelversion
+
+          echo "========================================"
+          echo "GTA9 DEFCONFIG FILES"
+          echo "========================================"
+
+          find arch/arm64/configs \
+            -maxdepth 1 \
+            -type f \
+            -iname '*gta9*' \
+            -print
+
+          echo "========================================"
+          echo "KSU CONFIG REFERENCES"
+          echo "========================================"
+
           grep -Rni \
             --exclude-dir=.git \
-            "kernel-5.10" \
-            . 2>/dev/null | head -200 || true
+            "CONFIG_KSU" \
+            arch/arm64/configs \
+            kernel/configs \
+            2>/dev/null | head -100 || true
 
-          echo "=== ALL BUILD.SH REFERENCES ==="
-          grep -Rni \
-            --exclude-dir=.git \
-            "build/build.sh" \
-            . 2>/dev/null | head -200 || true
+      - name: Inspect Build Infrastructure
+        working-directory: gta9
+        run: |
+          set -eux
 
-          echo "=== BUILD FILES ==="
-          find . -maxdepth 4 -type f \
+          echo "========================================"
+          echo "ALL BUILD.SH FILES"
+          echo "========================================"
+
+          find .. \
+            -type f \
+            -name "build.sh" \
+            -print
+
+          echo "========================================"
+          echo "ALL BUILD.CONFIG FILES"
+          echo "========================================"
+
+          find . \
+            -type f \
+            -name "build.config*" \
+            -print
+
+          echo "========================================"
+          echo "ALL BUILD-RELATED FILES"
+          echo "========================================"
+
+          find . \
+            -maxdepth 5 \
+            -type f \
             \( \
               -name "build.sh" \
               -o -name "build.config*" \
               -o -name "*build*" \
             \) \
-            -print | head -300
+            -print | head -500
 
-          echo "=== ROOT ==="
+          echo "========================================"
+          echo "ROOT DIRECTORY"
+          echo "========================================"
+
           ls -lah
 
-          echo "=== SETUP ==="
-          find setup -maxdepth 3 -type f -print
+          echo "========================================"
+          echo "SETUP DIRECTORY"
+          echo "========================================"
+
+          find setup \
+            -maxdepth 4 \
+            -type f \
+            -print
+
+          echo "========================================"
+          echo "BUILD DIRECTORY"
+          echo "========================================"
+
+          if [ -d build ]; then
+            ls -lah build
+            find build -maxdepth 3 -type f -print
+          else
+            echo "build/ DOES NOT EXIST"
+          fi
+
+      - name: Search Kernel 5.10 References
+        working-directory: gta9
+        run: |
+          set -eux
+
+          echo "========================================"
+          echo "KERNEL-5.10 REFERENCES"
+          echo "========================================"
+
+          grep -Rni \
+            --exclude-dir=.git \
+            "kernel-5.10" \
+            . 2>/dev/null | head -300 || true
+
+      - name: Search Build Script References
+        working-directory: gta9
+        run: |
+          set -eux
+
+          echo "========================================"
+          echo "BUILD/BUILD.SH REFERENCES"
+          echo "========================================"
+
+          grep -Rni \
+            --exclude-dir=.git \
+            "build/build.sh" \
+            . 2>/dev/null | head -300 || true
+
+          echo "========================================"
+          echo "GEN_BUILD_CONFIG REFERENCES"
+          echo "========================================"
+
+          grep -Rni \
+            --exclude-dir=.git \
+            "gen_build_config.py" \
+            . 2>/dev/null | head -300 || true
+
+      - name: Inspect Setup Build Script
+        working-directory: gta9
+        run: |
+          set -eux
+
+          echo "========================================"
+          echo "setup/build_kernel.sh"
+          echo "========================================"
+
+          if [ -f setup/build_kernel.sh ]; then
+            sed -n '1,400p' setup/build_kernel.sh
+          else
+            echo "setup/build_kernel.sh DOES NOT EXIST"
+          fi
+
+          echo "========================================"
+          echo "setup/build_kernel_2.sh"
+          echo "========================================"
+
+          if [ -f setup/build_kernel_2.sh ]; then
+            sed -n '1,400p' setup/build_kernel_2.sh
+          else
+            echo "setup/build_kernel_2.sh DOES NOT EXIST"
+          fi
+
+      - name: Inspect Build Config
+        working-directory: gta9
+        run: |
+          set -eux
+
+          echo "========================================"
+          echo "build.config.mtk.aarch64"
+          echo "========================================"
+
+          if [ -f build.config.mtk.aarch64 ]; then
+            sed -n '1,400p' build.config.mtk.aarch64
+          else
+            echo "build.config.mtk.aarch64 DOES NOT EXIST"
+          fi
+
+          echo "========================================"
+          echo "build.config.common"
+          echo "========================================"
+
+          if [ -f build.config.common ]; then
+            sed -n '1,400p' build.config.common
+          else
+            echo "build.config.common DOES NOT EXIST"
+          fi
+
+      - name: Inspect GTA9 Configurations
+        working-directory: gta9
+        run: |
+          set -eux
+
+          echo "========================================"
+          echo "GTA9 00 DEFCONFIG"
+          echo "========================================"
+
+          if [ -f arch/arm64/configs/gta9_00_defconfig ]; then
+            sed -n '1,350p' arch/arm64/configs/gta9_00_defconfig
+          fi
+
+          echo "========================================"
+          echo "GTA9 DEFCONFIG"
+          echo "========================================"
+
+          if [ -f arch/arm64/configs/gta9_defconfig ]; then
+            sed -n '1,350p' arch/arm64/configs/gta9_defconfig
+          fi
+
+          echo "========================================"
+          echo "OT11 CONFIG"
+          echo "========================================"
+
+          if [ -f kernel/configs/ot11.config ]; then
+            sed -n '1,300p' kernel/configs/ot11.config
+          fi
+
+      - name: Inspect Device Tree
+        working-directory: gta9
+        run: |
+          set -eux
+
+          echo "========================================"
+          echo "GTA9 DEVICE TREES"
+          echo "========================================"
+
+          find arch/arm64/boot/dts \
+            -type f \
+            \( \
+              -iname '*gta9*' \
+              -o -iname '*8781*' \
+              -o -iname '*6789*' \
+            \) \
+            -print
+
+          echo "========================================"
+          echo "EUR DTS"
+          echo "========================================"
+
+          DTS="arch/arm64/boot/dts/samsung/mt8781_gta9wifi_eur_open_00.dts"
+
+          if [ -f "$DTS" ]; then
+            sed -n '1,250p' "$DTS"
+          else
+            echo "$DTS DOES NOT EXIST"
+          fi
+
+      - name: Inspect Toolchain References
+        working-directory: gta9
+        run: |
+          set -eux
+
+          echo "========================================"
+          echo "SYSTEM TOOLS"
+          echo "========================================"
+
+          command -v clang || true
+          command -v clang++ || true
+          command -v ld.lld || true
+          command -v aarch64-linux-gnu-gcc || true
+          command -v arm-linux-gnueabi-gcc || true
+
+          echo "========================================"
+          echo "AVAILABLE CLANG"
+          echo "========================================"
+
+          clang --version || true
+
+          echo "========================================"
+          echo "TOOLCHAIN REFERENCES IN SOURCE"
+          echo "========================================"
+
+          grep -RniE \
+            --exclude-dir=.git \
+            "CLANG_PREBUILT_BIN|CLANG_VERSION|clang-r[0-9]+|proton-clang|CROSS_COMPILE|LLVM_IAS" \
+            . 2>/dev/null | head -300 || true
+
+      - name: Final Report
+        if: always()
+        working-directory: gta9
+        run: |
+          echo "========================================"
+          echo "GTA9 BUILD INFRASTRUCTURE REPORT"
+          echo "========================================"
+
+          echo "Source:"
+          git rev-parse HEAD
+
+          echo
+          echo "Kernel version:"
+          make kernelversion || true
+
+          echo
+          echo "KernelSU:"
+          git -C KernelSU rev-parse HEAD 2>/dev/null || true
+
+          echo
+          echo "Directories:"
+          ls -ld \
+            arch \
+            drivers \
+            scripts \
+            setup \
+            KernelSU \
+            build 2>/dev/null || true
+
+          echo
+          echo "========================================"
+          echo "NO KERNEL BUILD WAS STARTED"
+          echo "========================================"
