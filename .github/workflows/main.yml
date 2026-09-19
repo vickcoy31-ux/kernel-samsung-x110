@@ -16,7 +16,8 @@ jobs:
       - name: Install Host Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ca-certificates ccache clang curl flex gcc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev libssl-dev libxml2 libxml2-dev lld make python3 python3-distutils rsync unzip wget xz-utils zip coreutils linux-libc-dev
+          # Pastikan flex dan bison terinstal di sistem
+          sudo apt-get install -y bc bison flex build-essential ca-certificates ccache clang curl gcc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev libssl-dev libxml2 libxml2-dev lld make python3 python3-distutils rsync unzip wget xz-utils zip coreutils linux-libc-dev
 
       # 2. CLONE SOURCE & KERNELSU
       - name: Clone Source & Submodules
@@ -42,8 +43,8 @@ jobs:
           mkdir -p gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
           tar -xzf gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}.tar.gz -C gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
 
-      # 4. SAMSUNG BUILD SYSTEM LAYOUT & CLEAN WRAPPER
-      - name: Configure Samsung Build Layout and Clean Wrapper
+      # 4. SAMSUNG BUILD SYSTEM LAYOUT & WRAPPER
+      - name: Configure Samsung Build Layout and Wrapper
         run: |
           cd gta9
           ln -sf . kernel-5.10
@@ -53,11 +54,9 @@ jobs:
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
           mkdir -p "$TOOL_DIR"
 
-          # --- THE CLEAN WRAPPER ---
-          # Kita buang semua flag yang menghalangi GCC mencari header Ubuntu
+          # --- THE IMPOSTOR WRAPPER ---
           cat <<EOF > "$TOOL_DIR/clang"
           #!/bin/bash
-          # 1. Hapus flag rtlib, 2. Hapus nostdinc, 3. Hapus isystem yang aneh-aneh
           ARGS=\$(echo "\$@" | sed 's/--rtlib=compiler-rt//g' | sed 's/-nostdinc//g' | sed 's/-isystem [^ ]*//g')
           exec /usr/bin/gcc \$ARGS
           EOF
@@ -75,7 +74,8 @@ jobs:
           ln -sf lld "$TOOL_DIR/ld.lld"
           ln -sf /usr/bin/realpath "$TOOL_DIR/realpath"
 
-          COMMANDS="echo printf sleep ar as awk basename bash cat chmod cmp cp cut date dirname du env expr find grep head ld ln mkdir mktemp mv nproc objcopy objdump od printf pwd readlink rm sed sort stat tail tar test touch tr uname uniq wc which xargs zip make gcc g++ aarch64-linux-gnu-gcc aarch64-linux-gnu-g++ arm-linux-gnueabi-gcc arm-linux-gnueabi-g++"
+          # KUNCI: Tambahkan 'flex' dan 'bison' ke dalam daftar symlink
+          COMMANDS="flex bison echo printf sleep ar as awk basename bash cat chmod cmp cp cut date dirname du env expr find grep head ld ln mkdir mktemp mv nproc objcopy objdump od printf pwd readlink rm sed sort stat tail tar test touch tr uname uniq wc which xargs zip make gcc g++ aarch64-linux-gnu-gcc aarch64-linux-gnu-g++ arm-linux-gnueabi-gcc arm-linux-gnueabi-g++"
           for cmd in $COMMANDS; do
             target="$(type -P "$cmd" || true)"
             [ -n "$target" ] && ln -sf "$target" "$TOOL_DIR/$cmd"
@@ -108,7 +108,6 @@ jobs:
           
           sed -i "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=$CLANG_ROOT/bin#" out/build.config
 
-          # Kita hapus HOSTCFLAGS yang membingungkan, biarkan wrapper yang bekerja
           echo "PATH=$PWD/build/build-tools/path/linux-x86:\$PATH" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=$CLANG_ROOT/compat-libs:\$LD_LIBRARY_PATH" >> $GITHUB_ENV
           echo "C_INCLUDE_PATH=/usr/include/x86_64-linux-gnu:/usr/include" >> $GITHUB_ENV
@@ -125,9 +124,9 @@ jobs:
           OUT_DIR: out
           DIST_DIR: out
           BUILD_CONFIG: out/build.config
-          # Kita paksa KBUILD_HOSTCC agar tidak pakai clang untuk tools
-          KBUILD_HOSTCC: gcc
-          KBUILD_HOSTCXX: g++
+          HOSTCC: /usr/bin/gcc
+          HOSTCXX: /usr/bin/g++
+          HOSTLD: /usr/bin/gcc
           KCFLAGS: "-Wno-error"
         run: |
           set -eux
