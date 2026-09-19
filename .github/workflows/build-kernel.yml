@@ -165,56 +165,70 @@ jobs:
       # ============================================================
       # 6. DETECT CLANG RESOURCE DIRECTORY
       # ============================================================
-      - name: Detect Clang resource directory
+            - name: Download Android Clang r416183b
         run: |
           set -eux
 
           cd gta9
 
-          CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b"
-          CLANG_BIN="$CLANG_ROOT/bin"
+          CLANG_BASE="$PWD/prebuilts-master/clang/host/linux-x86"
+          CLANG_ARCHIVE="$CLANG_BASE/clang-r416183b.tar.gz"
+          CLANG_ROOT="$CLANG_BASE/clang-r416183b"
 
-          echo "=== CLANG RESOURCE DIRECTORY ==="
+          mkdir -p "$CLANG_BASE"
 
-          RESOURCE_DIR="$("$CLANG_BIN/clang-12" -print-resource-dir)"
+          rm -f "$CLANG_ARCHIVE"
+          rm -rf "$CLANG_ROOT"
 
-          echo "Reported resource directory:"
-          echo "$RESOURCE_DIR"
+          echo "=== DOWNLOAD ANDROID CLANG r416183b ==="
 
-          echo
-          echo "=== SEARCH BUILTIN HEADERS ==="
-
-          find "$CLANG_ROOT" \
-            -type f \
-            \( -name "stddef.h" -o -name "stdint.h" \) \
-            -print
-
-          STDDEF_HEADER="$(
-            find "$CLANG_ROOT" \
-              -type f \
-              -name "stddef.h" \
-              | head -n 1
-          )"
-
-          test -n "$STDDEF_HEADER"
-          test -f "$STDDEF_HEADER"
+          curl \
+            -L \
+            --fail \
+            --retry 8 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            --connect-timeout 30 \
+            --max-time 1800 \
+            -o "$CLANG_ARCHIVE" \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12L-gsi/clang-r416183b.tar.gz"
 
           echo
-          echo "=== STDDEF HEADER ==="
-          echo "$STDDEF_HEADER"
+          echo "=== DOWNLOADED FILE ==="
 
-          CLANG_RESOURCE_DIR="${STDDEF_HEADER%/include/stddef.h}"
+          ls -lh "$CLANG_ARCHIVE"
 
-          echo
-          echo "=== DETECTED RESOURCE DIR ==="
-          echo "$CLANG_RESOURCE_DIR"
-
-          test -d "$CLANG_RESOURCE_DIR"
-          test -d "$CLANG_RESOURCE_DIR/include"
+          test -s "$CLANG_ARCHIVE"
 
           echo
-          echo "=== RESOURCE CONTENT ==="
-          ls -la "$CLANG_RESOURCE_DIR/include" | head -50
+          echo "=== VERIFY GZIP ==="
+
+          gzip -t "$CLANG_ARCHIVE"
+
+          echo
+          echo "=== EXTRACT CLANG ==="
+
+          mkdir -p "$CLANG_ROOT"
+
+          tar \
+            -xzf "$CLANG_ARCHIVE" \
+            -C "$CLANG_ROOT"
+
+          echo
+          echo "=== VERIFY CLANG ==="
+
+          test -x "$CLANG_ROOT/bin/clang-12"
+          test -x "$CLANG_ROOT/bin/clang++"
+
+          echo
+          echo "=== CLANG VERSION ==="
+
+          "$CLANG_ROOT/bin/clang-12" --version
+
+          echo
+          echo "=== CLANG DIRECTORY ==="
+
+          du -sh "$CLANG_ROOT"
 
       # ============================================================
       # 7. DETECT GCC HOST INCLUDE DIRECTORIES
