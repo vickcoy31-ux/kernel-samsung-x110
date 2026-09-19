@@ -60,15 +60,19 @@ jobs:
             libncurses-dev \
             device-tree-compiler
 
-          echo "=== HOST GCC ==="
+          echo "=== GCC ==="
           gcc --version
 
           echo
-          echo "=== HOST MAKE ==="
+          echo "=== G++ ==="
+          g++ --version
+
+          echo
+          echo "=== MAKE ==="
           make --version
 
           echo
-          echo "=== HOST PYTHON ==="
+          echo "=== PYTHON ==="
           python3 --version
 
 
@@ -91,7 +95,7 @@ jobs:
           pwd
 
           echo
-          echo "=== SOURCE TOP LEVEL ==="
+          echo "=== TOP LEVEL ==="
           ls -la
 
           test -f Makefile
@@ -131,7 +135,7 @@ jobs:
 
 
       # ============================================================
-      # 4. CREATE COMPATIBILITY LAYOUT
+      # 4. COMPATIBILITY LAYOUT
       # ============================================================
       - name: Prepare kernel build layout
         run: |
@@ -160,7 +164,7 @@ jobs:
 
 
       # ============================================================
-      # 5. DOWNLOAD ANDROID CLANG R416183B
+      # 5. DOWNLOAD ANDROID CLANG
       # ============================================================
       - name: Download Android Clang r416183b
         run: |
@@ -201,7 +205,7 @@ jobs:
 
 
       # ============================================================
-      # 6. DETECT REAL CLANG RESOURCE DIRECTORY
+      # 6. DETECT CLANG RESOURCE DIRECTORY
       # ============================================================
       - name: Detect Clang resource directory
         run: |
@@ -226,7 +230,7 @@ jobs:
           echo "$PRINTED_RESOURCE_DIR"
 
           echo
-          echo "=== SEARCHING FOR stddef.h ==="
+          echo "=== SEARCHING stddef.h ==="
 
           find "$CLANG_ROOT" \
             -type f \
@@ -263,20 +267,68 @@ jobs:
           test -f "$CLANG_RESOURCE_DIR/include/stddef.h"
           test -f "$CLANG_RESOURCE_DIR/include/stdint.h"
 
-          echo
-          echo "=== RESOURCE INCLUDE ==="
-
-          ls -la \
-            "$CLANG_RESOURCE_DIR/include" \
-            | head -50
-
           echo "CLANG_ROOT=$CLANG_ROOT" >> "$GITHUB_ENV"
           echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
           echo "CLANG_RESOURCE_DIR=$CLANG_RESOURCE_DIR" >> "$GITHUB_ENV"
 
 
       # ============================================================
-      # 7. PREPARE LLVM / LLD
+      # 7. DETECT GCC HOST INCLUDE DIRECTORIES
+      # ============================================================
+      - name: Detect GCC host include directories
+        run: |
+          set -eux
+
+          echo "=== GCC VERSION ==="
+
+          gcc -dumpversion
+
+          echo
+          echo "=== GCC MACHINE ==="
+
+          gcc -dumpmachine
+
+          GCC_MACHINE="$(gcc -dumpmachine)"
+          GCC_VERSION="$(gcc -dumpversion)"
+
+          GCC_INCLUDE="/usr/lib/gcc/$GCC_MACHINE/$GCC_VERSION/include"
+          GCC_INCLUDE_FIXED="/usr/lib/gcc/$GCC_MACHINE/$GCC_VERSION/include-fixed"
+          MULTIARCH_INCLUDE="/usr/include/$GCC_MACHINE"
+
+          echo
+          echo "=== GCC INCLUDE ==="
+          echo "$GCC_INCLUDE"
+
+          echo
+          echo "=== GCC INCLUDE-FIXED ==="
+          echo "$GCC_INCLUDE_FIXED"
+
+          echo
+          echo "=== MULTIARCH INCLUDE ==="
+          echo "$MULTIARCH_INCLUDE"
+
+          test -d "$GCC_INCLUDE"
+          test -d "$MULTIARCH_INCLUDE"
+
+          test -f "$MULTIARCH_INCLUDE/sys/types.h"
+
+          echo
+          echo "=== sys/types.h ==="
+          ls -l "$MULTIARCH_INCLUDE/sys/types.h"
+
+          echo
+          echo "=== GCC INCLUDE CONTENT ==="
+          ls -la "$GCC_INCLUDE" | head -30
+
+          echo "GCC_MACHINE=$GCC_MACHINE" >> "$GITHUB_ENV"
+          echo "GCC_VERSION=$GCC_VERSION" >> "$GITHUB_ENV"
+          echo "GCC_INCLUDE=$GCC_INCLUDE" >> "$GITHUB_ENV"
+          echo "GCC_INCLUDE_FIXED=$GCC_INCLUDE_FIXED" >> "$GITHUB_ENV"
+          echo "MULTIARCH_INCLUDE=$MULTIARCH_INCLUDE" >> "$GITHUB_ENV"
+
+
+      # ============================================================
+      # 8. PREPARE LLVM / LLD
       # ============================================================
       - name: Prepare LLVM tools
         run: |
@@ -341,7 +393,7 @@ jobs:
 
 
       # ============================================================
-      # 8. LLD COMPATIBILITY LIBRARY
+      # 9. PREPARE LLD COMPATIBILITY LIBRARY
       # ============================================================
       - name: Prepare LLD compatibility libraries
         run: |
@@ -387,23 +439,15 @@ jobs:
             "$COMPAT_DIR/libxml2.so.2.9.10"
 
           echo
-          echo "=== LD.LLD BINARY ==="
+          echo "=== LD.LLD ==="
 
           test -x "$TOOL_DIR/ld.lld"
-
-          ls -lh \
-            "$TOOL_DIR/ld.lld"
-
-          echo
-          echo "=== TEST LD.LLD ==="
-
-          export LD_LIBRARY_PATH="$COMPAT_DIR:${LD_LIBRARY_PATH:-}"
 
           "$TOOL_DIR/ld.lld" --version
 
 
       # ============================================================
-      # 9. PREPARE ANDROID BUILD HOST PATH
+      # 10. PREPARE ANDROID HOST COMMAND PATH
       # ============================================================
       - name: Prepare Android build host command path
         run: |
@@ -502,7 +546,7 @@ jobs:
 
 
       # ============================================================
-      # 10. PREPARE MAKE / BINUTILS
+      # 11. PREPARE MAKE / BINUTILS
       # ============================================================
       - name: Prepare kernel build tools
         run: |
@@ -540,7 +584,7 @@ jobs:
 
 
       # ============================================================
-      # 11. CONVERT PYTHON2 GENERATOR
+      # 12. CONVERT PYTHON2 BUILD GENERATOR
       # ============================================================
       - name: Prepare build config generator
         run: |
@@ -560,7 +604,7 @@ jobs:
 
 
       # ============================================================
-      # 12. GENERATE BUILD CONFIG
+      # 13. GENERATE BUILD CONFIG
       # ============================================================
       - name: Generate kernel build config
         run: |
@@ -588,7 +632,7 @@ jobs:
 
 
       # ============================================================
-      # 13. PATCH GENERATED CLANG PATH
+      # 14. PATCH GENERATED CLANG PATH
       # ============================================================
       - name: Configure Android Clang
         run: |
@@ -616,7 +660,7 @@ jobs:
 
 
       # ============================================================
-      # 14. VERIFY INTERNAL CLANG
+      # 15. VERIFY HOST CLANG + SYSTEM HEADERS
       # ============================================================
       - name: Verify internal Android Clang
         run: |
@@ -626,87 +670,82 @@ jobs:
 
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
 
-          HOST_CFLAGS="--gcc-toolchain=/usr \
+          HOST_INCLUDE_FLAGS="\
+          --gcc-toolchain=/usr \
           -resource-dir=$CLANG_RESOURCE_DIR \
-          -isystem /usr/include/x86_64-linux-gnu \
+          -isystem $GCC_INCLUDE \
+          -isystem $GCC_INCLUDE_FIXED \
+          -isystem $MULTIARCH_INCLUDE \
           -isystem /usr/include"
 
-          echo "=== INTERNAL CLANG VERSION ==="
+          echo "=== INTERNAL CLANG ==="
 
           "$TOOL_DIR/clang" --version
 
           echo
-          echo "=== INTERNAL CLANG++ VERSION ==="
-
-          "$TOOL_DIR/clang++" --version
-
-          echo
-          echo "=== INTERNAL CLANG RESOURCE DIR ==="
+          echo "=== RESOURCE DIR ==="
 
           "$TOOL_DIR/clang" \
-            $HOST_CFLAGS \
+            $HOST_INCLUDE_FLAGS \
             -print-resource-dir
 
           echo
-          echo "=== EXPECTED RESOURCE DIR ==="
-
-          echo "$CLANG_RESOURCE_DIR"
+          echo "=== GCC INCLUDE ==="
+          echo "$GCC_INCLUDE"
 
           echo
-          echo "=== STDDEF.H ==="
+          echo "=== MULTIARCH INCLUDE ==="
+          echo "$MULTIARCH_INCLUDE"
+
+          echo
+          echo "=== sys/types.h ==="
+
+          test -f \
+            "$MULTIARCH_INCLUDE/sys/types.h"
+
+          echo
+          echo "=== stddef.h ==="
 
           test -f \
             "$CLANG_RESOURCE_DIR/include/stddef.h"
 
-          ls -l \
-            "$CLANG_RESOURCE_DIR/include/stddef.h"
-
           echo
-          echo "=== INTERNAL CLANG HEADER COMPILE ==="
+          echo "=== HOST HEADER COMPILE TEST ==="
 
-          cat > /tmp/internal-clang-header-test.c <<'EOF'
+          cat > /tmp/clang-host-test.c <<'EOF'
+          #include <sys/types.h>
           #include <stddef.h>
           #include <stdint.h>
 
           int main(void)
           {
-              size_t x = 0;
-              uint32_t y = 0;
-              return (int)(x + y);
+              size_t a = 0;
+              uint32_t b = 0;
+              return (int)(a + b);
           }
           EOF
 
           "$TOOL_DIR/clang" \
-            $HOST_CFLAGS \
-            -x c \
+            $HOST_INCLUDE_FLAGS \
             -c \
-            /tmp/internal-clang-header-test.c \
-            -o /tmp/internal-clang-header-test.o
+            /tmp/clang-host-test.c \
+            -o /tmp/clang-host-test.o
 
           test -f \
-            /tmp/internal-clang-header-test.o
+            /tmp/clang-host-test.o
 
           echo
-          echo "=== INTERNAL CLANG HEADER TEST PASSED ==="
+          echo "=== HOST HEADER COMPILE PASSED ==="
 
 
       # ============================================================
-      # 15. VERIFY HOST TOOLCHAIN
+      # 16. VERIFY HOST GCC
       # ============================================================
-      - name: Verify host toolchain
+      - name: Verify host GCC
         run: |
           set -eux
 
-          cd gta9
-
-          TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
-
-          echo "=== HOST GCC ==="
-
-          gcc --version | head -1
-
-          echo
-          echo "=== HOST HEADER COMPILE ==="
+          echo "=== GCC HOST TEST ==="
 
           cat > /tmp/gcc-host-test.c <<'EOF'
           #include <sys/types.h>
@@ -715,9 +754,9 @@ jobs:
 
           int main(void)
           {
-              size_t x = 0;
-              uint32_t y = 0;
-              return (int)(x + y);
+              size_t a = 0;
+              uint32_t b = 0;
+              return (int)(a + b);
           }
           EOF
 
@@ -730,23 +769,11 @@ jobs:
             /tmp/gcc-host-test.o
 
           echo
-          echo "=== MAKE TEST ==="
-
-          "$TOOL_DIR/make" --version | head -1
-
-          echo
-          echo "=== UNAME TEST ==="
-
-          "$TOOL_DIR/uname" -a
-
-          echo
-          echo "=== NPROC TEST ==="
-
-          "$TOOL_DIR/nproc"
+          echo "=== GCC HOST TEST PASSED ==="
 
 
       # ============================================================
-      # 16. VERIFY KERNELSU
+      # 17. VERIFY KERNELSU / CONFIG / DTS
       # ============================================================
       - name: Verify KernelSU and kernel configuration
         run: |
@@ -758,9 +785,6 @@ jobs:
 
           test -d KernelSU
           test -d KernelSU/kernel
-
-          echo
-          echo "KernelSU commit:"
 
           git -C KernelSU rev-parse HEAD
 
@@ -794,7 +818,7 @@ jobs:
 
 
       # ============================================================
-      # 17. BUILD KERNEL
+      # 18. BUILD KERNEL
       # ============================================================
       - name: Build kernel
         env:
@@ -821,9 +845,12 @@ jobs:
 
           export LD_LIBRARY_PATH="$CLANG_ROOT/compat-libs:${LD_LIBRARY_PATH:-}"
 
-          export HOSTCFLAGS="--gcc-toolchain=/usr \
+          export HOSTCFLAGS="\
+          --gcc-toolchain=/usr \
           -resource-dir=$CLANG_RESOURCE_DIR \
-          -isystem /usr/include/x86_64-linux-gnu \
+          -isystem $GCC_INCLUDE \
+          -isystem $GCC_INCLUDE_FIXED \
+          -isystem $MULTIARCH_INCLUDE \
           -isystem /usr/include"
 
           export HOSTCXXFLAGS="$HOSTCFLAGS"
@@ -838,6 +865,7 @@ jobs:
           echo "=== BUILD CONFIG ==="
 
           test -f out/build.config
+
           realpath out/build.config
 
           echo
@@ -852,6 +880,26 @@ jobs:
 
           test -f \
             "$CLANG_RESOURCE_DIR/include/stddef.h"
+
+          echo
+          echo "=== GCC INCLUDE ==="
+
+          echo "$GCC_INCLUDE"
+
+          test -d "$GCC_INCLUDE"
+
+          echo
+          echo "=== MULTIARCH INCLUDE ==="
+
+          echo "$MULTIARCH_INCLUDE"
+
+          test -d "$MULTIARCH_INCLUDE"
+
+          echo
+          echo "=== sys/types.h ==="
+
+          test -f \
+            "$MULTIARCH_INCLUDE/sys/types.h"
 
           echo
           echo "=== HOSTCC ==="
@@ -893,7 +941,7 @@ jobs:
 
 
       # ============================================================
-      # 18. LOCATE OUTPUTS
+      # 19. LOCATE OUTPUTS
       # ============================================================
       - name: Locate kernel outputs
         if: success()
@@ -917,7 +965,7 @@ jobs:
 
 
       # ============================================================
-      # 19. PACKAGE
+      # 20. PACKAGE
       # ============================================================
       - name: Package kernel
         if: success()
@@ -1011,7 +1059,7 @@ jobs:
 
 
       # ============================================================
-      # 20. UPLOAD SUCCESS ARTIFACT
+      # 21. UPLOAD SUCCESS ARTIFACT
       # ============================================================
       - name: Upload kernel artifact
         if: success()
@@ -1023,7 +1071,7 @@ jobs:
 
 
       # ============================================================
-      # 21. DEBUG ON FAILURE
+      # 22. DEBUG ON FAILURE
       # ============================================================
       - name: Collect debug information
         if: failure()
@@ -1068,6 +1116,25 @@ jobs:
           echo "${CLANG_RESOURCE_DIR:-UNSET}"
 
           echo
+          echo "=== GCC INCLUDE ==="
+
+          echo "${GCC_INCLUDE:-UNSET}"
+
+          echo
+          echo "=== MULTIARCH INCLUDE ==="
+
+          echo "${MULTIARCH_INCLUDE:-UNSET}"
+
+          echo
+          echo "=== sys/types.h ==="
+
+          if [ -n "${MULTIARCH_INCLUDE:-}" ]; then
+            ls -l \
+              "$MULTIARCH_INCLUDE/sys/types.h" \
+              2>/dev/null || true
+          fi
+
+          echo
           echo "=== STDDEF.H ==="
 
           find "$CLANG_ROOT" \
@@ -1109,7 +1176,7 @@ jobs:
 
 
       # ============================================================
-      # 22. UPLOAD DEBUG ARTIFACT
+      # 23. UPLOAD DEBUG ARTIFACT
       # ============================================================
       - name: Upload debug artifact
         if: failure()
