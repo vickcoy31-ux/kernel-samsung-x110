@@ -14,7 +14,10 @@ jobs:
       # ============================================================
       - name: Install dependencies
         run: |
+          set -eux
+
           sudo apt-get update
+
           sudo apt-get install -y \
             git \
             curl \
@@ -158,7 +161,7 @@ jobs:
           ls -la bin | head -50
 
       # ============================================================
-      # 6. VERIFY REAL CLANG BEFORE TOUCHING INTERNAL PATH
+      # 6. VERIFY REAL CLANG
       # ============================================================
       - name: Verify Android Clang
         working-directory: gta9
@@ -367,14 +370,12 @@ jobs:
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
           CLANG_BIN="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
-          # --------------------------------------------------------
           # IMPORTANT:
           # Do NOT create:
           #
           # clang -> clang.real -> clang
           #
-          # Instead use clang-12 directly.
-          # --------------------------------------------------------
+          # Use clang-12 directly.
 
           test -x "$CLANG_BIN/clang-12"
 
@@ -382,20 +383,18 @@ jobs:
           cp -f "$CLANG_BIN/clang-12" "$TOOL_DIR/clang"
           chmod +x "$TOOL_DIR/clang"
 
-          # clang++ can use the same real compiler executable.
-          # argv[0] is clang++, so Clang selects C++ driver mode.
           rm -f "$TOOL_DIR/clang++"
           cp -f "$CLANG_BIN/clang-12" "$TOOL_DIR/clang++"
           chmod +x "$TOOL_DIR/clang++"
 
-          # Keep a separate copy of the original Android wrappers,
-          # but they are NOT placed in the active clang path.
           if [ -f "$CLANG_BIN/clang" ]; then
-            cp -f "$CLANG_BIN/clang" "$TOOL_DIR/android-clang-wrapper"
+            cp -f "$CLANG_BIN/clang" \
+              "$TOOL_DIR/android-clang-wrapper"
           fi
 
           if [ -f "$CLANG_BIN/clang++" ]; then
-            cp -f "$CLANG_BIN/clang++" "$TOOL_DIR/android-clangxx-wrapper"
+            cp -f "$CLANG_BIN/clang++" \
+              "$TOOL_DIR/android-clangxx-wrapper"
           fi
 
           # --------------------------------------------------------
@@ -412,7 +411,7 @@ jobs:
           ln -s lld "$TOOL_DIR/ld.lld"
 
           # --------------------------------------------------------
-          # LLVM utilities
+          # LLVM UTILITIES
           # --------------------------------------------------------
 
           for tool in \
@@ -546,15 +545,18 @@ jobs:
           LLVM: 1
           LLVM_IAS: 1
 
-          OUT_DIR: ${{ github.workspace }}/gta9/out
-          DIST_DIR: ${{ github.workspace }}/gta9/out
-          BUILD_CONFIG: ${{ github.workspace }}/gta9/out/build.config
+          OUT_DIR: out
+          DIST_DIR: out
 
-          HOSTCC: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang
-          HOSTCXX: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang++
+          # IMPORTANT:
+          # build.sh expects BUILD_CONFIG relative to ROOT_DIR.
+          BUILD_CONFIG: out/build.config
+
+          HOSTCC: build/build-tools/path/linux-x86/clang
+          HOSTCXX: build/build-tools/path/linux-x86/clang++
 
           HOSTAR: /usr/bin/ar
-          HOSTLD: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/ld.lld
+          HOSTLD: build/build-tools/path/linux-x86/ld.lld
 
           HOSTCFLAGS: "--gcc-toolchain=/usr -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
           HOSTCXXFLAGS: "--gcc-toolchain=/usr -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
@@ -591,18 +593,23 @@ jobs:
           export LLVM=1
           export LLVM_IAS=1
 
-          export OUT_DIR="$PWD/out"
-          export DIST_DIR="$PWD/out"
-          export BUILD_CONFIG="$PWD/out/build.config"
+          export OUT_DIR="out"
+          export DIST_DIR="out"
+
+          # IMPORTANT:
+          # RELATIVE PATH ONLY
+          export BUILD_CONFIG="out/build.config"
 
           echo
           echo "=================================================="
           echo "FINAL TOOLCHAIN CHECK"
           echo "=================================================="
 
+          echo "PWD=$PWD"
           echo "HOSTCC=$HOSTCC"
           echo "HOSTCXX=$HOSTCXX"
           echo "HOSTLD=$HOSTLD"
+          echo "BUILD_CONFIG=$BUILD_CONFIG"
           echo "HOSTCFLAGS=$HOSTCFLAGS"
 
           echo
@@ -616,10 +623,15 @@ jobs:
 
           echo
           echo "=================================================="
-          echo "BUILD CONFIG CHECK"
+          echo "BUILD CONFIG PATH CHECK"
           echo "=================================================="
 
           test -f "$BUILD_CONFIG"
+
+          realpath "$BUILD_CONFIG"
+
+          echo
+          echo "=== BUILD CONFIG CONTENT ==="
 
           grep -n \
             -E "^(KERNEL_DIR|CLANG_PREBUILT_BIN|MAKE_GOALS|CONFIG_MTK_PLATFORM)" \
@@ -707,6 +719,7 @@ jobs:
 
           echo
           echo "=== RELEASE FILES ==="
+
           ls -lh release
 
           test -n "$(find release -type f)"
