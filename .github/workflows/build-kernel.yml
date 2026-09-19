@@ -95,7 +95,7 @@ jobs:
           echo "build:"
           readlink -f build
 
-      # ============================================================
+            # ============================================================
       # 5. DOWNLOAD ANDROID CLANG R416183B
       # ============================================================
       - name: Download Android Clang r416183b
@@ -103,26 +103,59 @@ jobs:
         run: |
           set -eux
 
-          mkdir -p \
-            prebuilts-master/clang/host/linux-x86/clang-r416183b
+          CLANG_DIR="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b"
+          CLANG_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12L-gsi/clang-r416183b.tar.gz"
 
-          wget -q \
-            -O /tmp/clang-r416183b.tar.gz \
-            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12L-gsi/clang-r416183b.tar.gz"
+          mkdir -p "${CLANG_DIR}"
 
-          tar -xzf \
-            /tmp/clang-r416183b.tar.gz \
-            -C prebuilts-master/clang/host/linux-x86/clang-r416183b
+          rm -f /tmp/clang-r416183b.tar.gz
 
-          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
+          echo "=== DOWNLOAD ANDROID CLANG ==="
 
-          test -x "${CLANG_BIN}/clang"
-          test -x "${CLANG_BIN}/clang++"
-          test -x "${CLANG_BIN}/lld"
-          test -x "${CLANG_BIN}/ld.lld"
+          curl \
+            --fail \
+            --location \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            --connect-timeout 30 \
+            --max-time 600 \
+            -o /tmp/clang-r416183b.tar.gz \
+            "${CLANG_URL}"
 
-          echo "=== CLANG ==="
-          "${CLANG_BIN}/clang" --version
+          echo
+          echo "=== ARCHIVE INFO ==="
+
+          ls -lh /tmp/clang-r416183b.tar.gz
+
+          file /tmp/clang-r416183b.tar.gz
+
+          echo
+          echo "=== TEST ARCHIVE ==="
+
+          gzip -t /tmp/clang-r416183b.tar.gz
+
+          echo "gzip archive OK"
+
+          echo
+          echo "=== EXTRACT CLANG ==="
+
+          tar \
+            -xzf /tmp/clang-r416183b.tar.gz \
+            -C "${CLANG_DIR}"
+
+          echo
+          echo "=== VERIFY CLANG ==="
+
+          test -x "${CLANG_DIR}/bin/clang"
+          test -x "${CLANG_DIR}/bin/clang++"
+          test -x "${CLANG_DIR}/bin/lld"
+          test -x "${CLANG_DIR}/bin/ld.lld"
+
+          echo
+          echo "=== CLANG VERSION ==="
+
+          "${CLANG_DIR}/bin/clang" --version
 
       # ============================================================
       # 6. LLD LIBXML2 COMPATIBILITY
