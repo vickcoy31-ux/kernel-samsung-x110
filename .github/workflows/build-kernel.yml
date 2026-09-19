@@ -1,47 +1,18 @@
-      - name: Inject KernelSU
+- name: Inject KernelSU Clean Setup
         run: |
-          set -e
-
-          echo "=== Mencari root kernel ==="
-
-          TARGET_DIR=$(find . -maxdepth 3 -type f \
-            -path "*/drivers/Kconfig" \
-            -print -quit | sed 's|/drivers/Kconfig$||')
-
-          if [ -z "$TARGET_DIR" ]; then
-            echo "ERROR: drivers/Kconfig tidak ditemukan"
-            exit 1
+          # Cari folder yang punya drivers/Kconfig
+          TARGET_DIR=$(find . -maxdepth 3 -type f -path "*/drivers/Kconfig" | head -n 1 | sed 's|/drivers/Kconfig||')
+          
+          if [ -n "$TARGET_DIR" ]; then
+            cd "$TARGET_DIR"
           fi
-
-          cd "$TARGET_DIR"
-
-          echo "Kernel source: $(pwd)"
-
-          echo "=== Membersihkan KernelSU lama ==="
-
+          
+          echo "Pindah ke folder kernel: $(pwd)"
+          
           rm -rf drivers/kernelsu
-
-          sed -i '/drivers\/kernelsu\/Kconfig/d' drivers/Kconfig
+          sed -i '/kernelsu/d' drivers/Kconfig
           sed -i '/kernelsu/d' drivers/Makefile
-
-          echo "=== Mengambil KernelSU ==="
-
-          git clone --depth=1 \
-            https://github.com/tiann/KernelSU.git \
-            /tmp/KernelSU
-
-          echo "=== Memasang source KernelSU ==="
-
-          ln -s /tmp/KernelSU/kernel drivers/kernelsu
-
-          echo "=== Mendaftarkan KernelSU ==="
-
+          
+          git clone --depth=1 https://github.com/tiann/KernelSU.git drivers/kernelsu
           echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
-          echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-
-          echo "=== Verifikasi ==="
-
-          test -f drivers/kernelsu/Kconfig
-          test -f drivers/kernelsu/Makefile
-
-          echo "KernelSU berhasil dipasang."
+          echo 'obj-y += kernelsu/' >> drivers/Makefile
