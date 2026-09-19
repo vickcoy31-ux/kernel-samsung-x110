@@ -94,12 +94,7 @@ jobs:
           echo "=== SOURCE TOP LEVEL ==="
           ls -la
 
-          echo
-          echo "=== KERNEL MAKEFILE ==="
           test -f Makefile
-
-          echo
-          echo "=== DEFCONFIG ==="
           test -f arch/arm64/configs/gta9_00_defconfig
 
 
@@ -112,15 +107,12 @@ jobs:
 
           cd gta9
 
-          echo "=== GIT SUBMODULES ==="
-
           git submodule sync --recursive
 
           git submodule update \
             --init \
             --depth=1
 
-          echo
           echo "=== KERNELSU ==="
 
           test -d KernelSU
@@ -129,7 +121,7 @@ jobs:
           git -C KernelSU rev-parse HEAD
 
           echo
-          echo "=== KERNELSU CONFIG ==="
+          echo "=== KSU CONFIG ==="
 
           grep -R \
             "CONFIG_KSU" \
@@ -161,15 +153,8 @@ jobs:
             kernel-5.10 \
             build
 
-          echo
-          echo "=== BUILD SCRIPT ==="
-
           test -f setup/kernel/build/build.sh
-
           chmod +x setup/kernel/build/build.sh
-
-          echo
-          echo "=== GENERATOR ==="
 
           test -f scripts/gen_build_config.py
 
@@ -206,12 +191,6 @@ jobs:
 
           echo "=== CLANG ROOT ==="
           echo "$CLANG_ROOT"
-
-          echo
-          echo "=== CLANG BINARY ==="
-
-          ls -lh \
-            "$CLANG_ROOT/bin/clang-12"
 
           test -x "$CLANG_ROOT/bin/clang-12"
 
@@ -281,11 +260,8 @@ jobs:
           echo
           echo "=== REQUIRED HEADERS ==="
 
-          test -f \
-            "$CLANG_RESOURCE_DIR/include/stddef.h"
-
-          test -f \
-            "$CLANG_RESOURCE_DIR/include/stdint.h"
+          test -f "$CLANG_RESOURCE_DIR/include/stddef.h"
+          test -f "$CLANG_RESOURCE_DIR/include/stdint.h"
 
           echo
           echo "=== RESOURCE INCLUDE ==="
@@ -337,6 +313,7 @@ jobs:
           echo "=== INSTALL LLD ==="
 
           test -f "$CLANG_BIN/lld"
+          test -f "$CLANG_BIN/ld.lld"
 
           rm -f "$TOOL_DIR/lld"
           rm -f "$TOOL_DIR/ld.lld"
@@ -345,11 +322,12 @@ jobs:
             "$CLANG_BIN/lld" \
             "$TOOL_DIR/lld"
 
-          chmod +x \
-            "$TOOL_DIR/lld"
+          cp \
+            "$CLANG_BIN/ld.lld" \
+            "$TOOL_DIR/ld.lld"
 
-          ln -s \
-            lld \
+          chmod +x \
+            "$TOOL_DIR/lld" \
             "$TOOL_DIR/ld.lld"
 
           echo
@@ -370,10 +348,6 @@ jobs:
           set -eux
 
           cd gta9
-
-          # IMPORTANT:
-          # Every GitHub Actions run step has its own shell.
-          # Therefore TOOL_DIR is defined again here.
 
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
           COMPAT_DIR="$CLANG_ROOT/compat-libs"
@@ -413,18 +387,19 @@ jobs:
             "$COMPAT_DIR/libxml2.so.2.9.10"
 
           echo
-          echo "=== LLD BINARY ==="
+          echo "=== LD.LLD BINARY ==="
 
-          test -x "$TOOL_DIR/lld"
+          test -x "$TOOL_DIR/ld.lld"
 
-          ls -lh "$TOOL_DIR/lld"
+          ls -lh \
+            "$TOOL_DIR/ld.lld"
 
           echo
-          echo "=== TEST LLD ==="
+          echo "=== TEST LD.LLD ==="
 
           export LD_LIBRARY_PATH="$COMPAT_DIR:${LD_LIBRARY_PATH:-}"
 
-          "$TOOL_DIR/lld" --version
+          "$TOOL_DIR/ld.lld" --version
 
 
       # ============================================================
@@ -594,7 +569,6 @@ jobs:
           cd gta9
 
           rm -rf out
-
           mkdir -p out
 
           python3 \
@@ -864,7 +838,6 @@ jobs:
           echo "=== BUILD CONFIG ==="
 
           test -f out/build.config
-
           realpath out/build.config
 
           echo
@@ -1077,6 +1050,7 @@ jobs:
 
           echo
           echo "=== BUILD CONFIG ==="
+
           sed -n '1,280p' \
             out/build.config \
             2>/dev/null || true
