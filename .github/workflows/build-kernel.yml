@@ -1,9 +1,7 @@
-name: Build Samsung X110 Kernel with KernelSU
+name: Build Kernel - AI Gemini
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
   build:
@@ -20,12 +18,12 @@ jobs:
       - name: Download Clang Toolchain
         run: |
           echo "Mengunduh Proton-Clang Compiler..."
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          git clone --depth=1 https://github.com/1kdrag0n/proton-clang.git clang
 
       - name: Clone Source Code
         run: |
           echo "Mengunduh Source Code Kernel Samsung GTA9..."
-          git clone --depth=1 https://github.com/0xA11CE613/kernel_samsung_gta9.git kernel_source
+          git clone --depth=1 https://github.com/10xA11CE613/kernel_samsung_gta9.git kernel_source
 
       - name: Inject KernelSU Clean Setup
         run: |
