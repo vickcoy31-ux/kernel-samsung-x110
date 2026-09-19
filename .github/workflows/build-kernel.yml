@@ -29,6 +29,8 @@ jobs:
             git \
             libelf-dev \
             libssl-dev \
+            libxml2 \
+            libxml2-dev \
             lld \
             llvm \
             python3 \
@@ -124,6 +126,7 @@ jobs:
           fi
 
           echo "=== BUILD LAYOUT ==="
+
           ls -ld kernel-5.10
           ls -ld build
 
@@ -174,31 +177,66 @@ jobs:
             | sort \
             | grep -E 'clang|lld' || true
 
-          echo
-          echo "=== CHECK CLANG ==="
 
-          test -e "${CLANG_BIN}/clang"
-          test -e "${CLANG_BIN}/clang++"
+      # ============================================================
+      # 6. INSPECT LLD DEPENDENCIES
+      # ============================================================
+      - name: Inspect LLD dependencies
+        working-directory: gta9
+        run: |
+          set -eux
 
-          echo
-          echo "=== CHECK LLD CANDIDATES ==="
+          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
+
+          echo "========================================"
+          echo "LLD SOURCE FILES"
+          echo "========================================"
 
           ls -la "${CLANG_BIN}/lld" || true
           ls -la "${CLANG_BIN}/ld.lld" || true
 
           echo
-          echo "=== DIRECT CLANG ==="
+          echo "========================================"
+          echo "LLD REAL PATH"
+          echo "========================================"
 
-          "${CLANG_BIN}/clang" --version || true
+          if [ -e "${CLANG_BIN}/lld" ]; then
+            readlink -f "${CLANG_BIN}/lld" || true
+          fi
+
+          if [ -e "${CLANG_BIN}/ld.lld" ]; then
+            readlink -f "${CLANG_BIN}/ld.lld" || true
+          fi
 
           echo
-          echo "=== DIRECT CLANG++ ==="
+          echo "========================================"
+          echo "LDD LLD"
+          echo "========================================"
 
-          "${CLANG_BIN}/clang++" --version || true
+          if [ -e "${CLANG_BIN}/lld" ]; then
+            ldd "${CLANG_BIN}/lld" || true
+          fi
+
+          if [ -e "${CLANG_BIN}/ld.lld" ]; then
+            ldd "${CLANG_BIN}/ld.lld" || true
+          fi
+
+          echo
+          echo "========================================"
+          echo "SEARCH libxml2"
+          echo "========================================"
+
+          find /usr \
+            -name 'libxml2.so*' \
+            -type f \
+            -o -name 'libxml2.so*' \
+            -type l \
+            2>/dev/null \
+            | sort || true
 
 
       # ============================================================
-      # 6. PREPARE PYTHON BUILD CONFIG GENERATOR
+      # 7. PREPARE PYTHON BUILD CONFIG GENERATOR
       # ============================================================
       - name: Prepare build config generator
         working-directory: gta9
@@ -219,7 +257,7 @@ jobs:
 
 
       # ============================================================
-      # 7. GENERATE BUILD CONFIG
+      # 8. GENERATE BUILD CONFIG
       # ============================================================
       - name: Generate build config
         working-directory: gta9
@@ -245,7 +283,7 @@ jobs:
 
 
       # ============================================================
-      # 8. PATCH CLANG PATH
+      # 9. PATCH CLANG PATH
       # ============================================================
       - name: Patch Clang path
         working-directory: gta9
@@ -264,11 +302,14 @@ jobs:
           fi
 
           echo "=== CLANG PATH ==="
-          grep -n "CLANG_PREBUILT_BIN" out/build.config
+
+          grep -n \
+            "CLANG_PREBUILT_BIN" \
+            out/build.config
 
 
       # ============================================================
-      # 9. VERIFY ANDROID CLANG
+      # 10. VERIFY ANDROID CLANG
       # ============================================================
       - name: Verify Clang toolchain
         working-directory: gta9
@@ -278,18 +319,19 @@ jobs:
           CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
           echo "=== CLANG ==="
+
           test -x "${CLANG_BIN}/clang"
-          "${CLANG_BIN}/clang" --version || true
+
+          "${CLANG_BIN}/clang" \
+            --version
 
           echo
           echo "=== CLANG++ ==="
-          test -x "${CLANG_BIN}/clang++"
-          "${CLANG_BIN}/clang++" --version || true
 
-          echo
-          echo "=== LLD CANDIDATES ==="
-          ls -la "${CLANG_BIN}/lld" || true
-          ls -la "${CLANG_BIN}/ld.lld" || true
+          test -x "${CLANG_BIN}/clang++"
+
+          "${CLANG_BIN}/clang++" \
+            --version
 
           echo
           echo "=== HOST CLANG TEST ==="
@@ -312,7 +354,7 @@ jobs:
 
 
       # ============================================================
-      # 10. PREPARE INTERNAL BUILD TOOLS
+      # 11. PREPARE INTERNAL BUILD TOOLS
       # ============================================================
       - name: Prepare internal build tools
         working-directory: gta9
@@ -338,6 +380,7 @@ jobs:
             /usr/bin/make \
             "${BUILD_TOOLS_DIR}/make"
 
+
           # --------------------------------------------------------
           # CLANG
           # --------------------------------------------------------
@@ -351,39 +394,44 @@ jobs:
             clang++-12
           do
             if [ -e "${CLANG_BIN}/${tool}" ]; then
-              rm -f "${BUILD_TOOLS_DIR}/${tool}"
+
+              rm -f \
+                "${BUILD_TOOLS_DIR}/${tool}"
 
               cp -a \
                 "${CLANG_BIN}/${tool}" \
                 "${BUILD_TOOLS_DIR}/${tool}"
 
               echo "Installed ${tool}"
+
             else
+
               echo "Not present: ${tool}"
+
             fi
           done
 
+
           # --------------------------------------------------------
           # LLD
-          #
-          # The previous run showed:
-          #
-          # ld.lld -> lld
-          #
-          # and the target was not executable.
-          #
-          # We therefore install BOTH lld and ld.lld explicitly.
           # --------------------------------------------------------
 
           echo
           echo "=== SOURCE LLD ==="
 
-          ls -la "${CLANG_BIN}/lld" || true
-          ls -la "${CLANG_BIN}/ld.lld" || true
+          ls -la \
+            "${CLANG_BIN}/lld" \
+            2>/dev/null || true
 
-          if [ -e "${CLANG_BIN}/lld" ]; then
+          ls -la \
+            "${CLANG_BIN}/ld.lld" \
+            2>/dev/null || true
 
-            rm -f "${BUILD_TOOLS_DIR}/lld"
+
+          if [ -x "${CLANG_BIN}/lld" ]; then
+
+            rm -f \
+              "${BUILD_TOOLS_DIR}/lld"
 
             cp -a \
               "${CLANG_BIN}/lld" \
@@ -392,32 +440,37 @@ jobs:
             chmod +x \
               "${BUILD_TOOLS_DIR}/lld"
 
-            echo "Installed lld"
+            echo "Installed executable lld"
 
-          else
+          elif [ -x "${CLANG_BIN}/ld.lld" ]; then
 
-            echo "ANDROID CLANG DOES NOT HAVE lld"
-
-          fi
-
-          if [ -e "${CLANG_BIN}/ld.lld" ]; then
-
-            rm -f "${BUILD_TOOLS_DIR}/ld.lld"
+            rm -f \
+              "${BUILD_TOOLS_DIR}/lld"
 
             cp -a \
               "${CLANG_BIN}/ld.lld" \
-              "${BUILD_TOOLS_DIR}/ld.lld"
+              "${BUILD_TOOLS_DIR}/lld"
 
             chmod +x \
-              "${BUILD_TOOLS_DIR}/ld.lld"
+              "${BUILD_TOOLS_DIR}/lld"
 
-            echo "Installed ld.lld"
+            echo "Installed executable ld.lld as lld"
 
           else
 
-            echo "ANDROID CLANG DOES NOT HAVE ld.lld"
+            echo "ERROR: No executable LLD found"
+            exit 1
 
           fi
+
+
+          rm -f \
+            "${BUILD_TOOLS_DIR}/ld.lld"
+
+          ln -s \
+            lld \
+            "${BUILD_TOOLS_DIR}/ld.lld"
+
 
           # --------------------------------------------------------
           # HOST COMMANDS
@@ -471,29 +524,108 @@ jobs:
 
           done
 
+
           # --------------------------------------------------------
           # BINUTILS
           # --------------------------------------------------------
 
-          ln -sf /usr/bin/ar \
+          ln -sf \
+            /usr/bin/ar \
             "${BUILD_TOOLS_DIR}/ar"
 
-          ln -sf /usr/bin/ranlib \
+          ln -sf \
+            /usr/bin/ranlib \
             "${BUILD_TOOLS_DIR}/ranlib"
 
-          ln -sf /usr/bin/strip \
+          ln -sf \
+            /usr/bin/strip \
             "${BUILD_TOOLS_DIR}/strip"
+
 
           echo
           echo "========================================"
           echo "INTERNAL TOOLS AFTER SETUP"
           echo "========================================"
 
-          ls -la "${BUILD_TOOLS_DIR}"
+          ls -la \
+            "${BUILD_TOOLS_DIR}"
 
 
       # ============================================================
-      # 11. VERIFY INTERNAL TOOLS
+      # 12. FIX LLD RUNTIME LIBRARY
+      # ============================================================
+      - name: Fix LLD runtime library
+        working-directory: gta9
+        run: |
+          set -eux
+
+          BUILD_TOOLS_DIR="${GITHUB_WORKSPACE}/gta9/build/build-tools/path/linux-x86"
+
+          echo "========================================"
+          echo "LLD RUNTIME DEPENDENCIES"
+          echo "========================================"
+
+          LLD="${BUILD_TOOLS_DIR}/lld"
+
+          test -x "${LLD}"
+
+          echo
+          echo "=== LDD BEFORE FIX ==="
+
+          ldd "${LLD}" || true
+
+          echo
+          echo "=== LIBXML2 INSTALLED ==="
+
+          ldconfig -p | grep \
+            libxml2 \
+            || true
+
+          echo
+          echo "=== LIBXML2 FILES ==="
+
+          find /usr/lib \
+            /lib \
+            -name 'libxml2.so*' \
+            2>/dev/null \
+            | sort \
+            || true
+
+          echo
+          echo "=== LLD VERSION TEST ==="
+
+          set +e
+
+          "${LLD}" \
+            --version
+
+          LLD_STATUS=$?
+
+          set -e
+
+          echo
+          echo "LLD STATUS=${LLD_STATUS}"
+
+          if [ "${LLD_STATUS}" -ne 0 ]; then
+
+            echo
+            echo "LLD requires an unavailable legacy runtime."
+
+            echo
+            echo "Checking bundled Clang directories..."
+
+            find "${GITHUB_WORKSPACE}/gta9/prebuilts-master" \
+              -name 'libxml2.so*' \
+              -print \
+              2>/dev/null \
+              | sort \
+              || true
+
+          fi
+
+
+      # ============================================================
+      # 13. VERIFY INTERNAL TOOLS
       # ============================================================
       - name: Verify internal tools
         working-directory: gta9
@@ -506,9 +638,6 @@ jobs:
           echo "INTERNAL TOOLS"
           echo "========================================"
 
-          # --------------------------------------------------------
-          # MAKE
-          # --------------------------------------------------------
 
           echo
           echo "=== MAKE ==="
@@ -524,14 +653,9 @@ jobs:
 
           test -x "${MAKE_REAL}"
 
-          echo
-          echo "=== MAKE VERSION ==="
+          "${BUILD_TOOLS_DIR}/make" \
+            --version
 
-          "${BUILD_TOOLS_DIR}/make" --version
-
-          # --------------------------------------------------------
-          # CLANG
-          # --------------------------------------------------------
 
           echo
           echo "=== CLANG ==="
@@ -542,27 +666,14 @@ jobs:
           test -x \
             "${BUILD_TOOLS_DIR}/clang"
 
-          # --------------------------------------------------------
-          # CLANG REAL
-          # --------------------------------------------------------
 
           echo
           echo "=== CLANG REAL ==="
 
-          if [ -e "${BUILD_TOOLS_DIR}/clang.real" ]; then
+          ls -la \
+            "${BUILD_TOOLS_DIR}/clang.real" \
+            2>/dev/null || true
 
-            ls -la \
-              "${BUILD_TOOLS_DIR}/clang.real"
-
-          else
-
-            echo "clang.real is absent"
-
-          fi
-
-          # --------------------------------------------------------
-          # CLANG++
-          # --------------------------------------------------------
 
           echo
           echo "=== CLANG++ ==="
@@ -573,49 +684,38 @@ jobs:
           test -x \
             "${BUILD_TOOLS_DIR}/clang++"
 
-          # --------------------------------------------------------
-          # CLANG++ REAL
-          # --------------------------------------------------------
 
           echo
           echo "=== CLANG++ REAL ==="
 
-          if [ -e "${BUILD_TOOLS_DIR}/clang++.real" ]; then
+          ls -la \
+            "${BUILD_TOOLS_DIR}/clang++.real" \
+            2>/dev/null || true
 
-            ls -la \
-              "${BUILD_TOOLS_DIR}/clang++.real"
-
-          else
-
-            echo "clang++.real is absent"
-
-          fi
-
-          # --------------------------------------------------------
-          # LLD
-          # --------------------------------------------------------
 
           echo
           echo "=== LLD ==="
 
-          echo "lld:"
           ls -la \
             "${BUILD_TOOLS_DIR}/lld"
 
-          echo
-          echo "ld.lld:"
           ls -la \
             "${BUILD_TOOLS_DIR}/ld.lld"
+
 
           echo
           echo "Resolved lld:"
+
           readlink -f \
             "${BUILD_TOOLS_DIR}/lld"
+
 
           echo
           echo "Resolved ld.lld:"
+
           readlink -f \
             "${BUILD_TOOLS_DIR}/ld.lld"
+
 
           test -x \
             "${BUILD_TOOLS_DIR}/lld"
@@ -623,9 +723,6 @@ jobs:
           test -x \
             "${BUILD_TOOLS_DIR}/ld.lld"
 
-          # --------------------------------------------------------
-          # LLD VERSION
-          # --------------------------------------------------------
 
           echo
           echo "=== LLD VERSION ==="
@@ -633,29 +730,20 @@ jobs:
           "${BUILD_TOOLS_DIR}/ld.lld" \
             --version
 
-          # --------------------------------------------------------
-          # INTERNAL CLANG VERSION
-          # --------------------------------------------------------
 
           echo
-          echo "=== INTERNAL CLANG VERSION ==="
+          echo "=== CLANG VERSION ==="
 
           "${BUILD_TOOLS_DIR}/clang" \
             --version
 
-          # --------------------------------------------------------
-          # INTERNAL CLANG++
-          # --------------------------------------------------------
 
           echo
-          echo "=== INTERNAL CLANG++ VERSION ==="
+          echo "=== CLANG++ VERSION ==="
 
           "${BUILD_TOOLS_DIR}/clang++" \
             --version
 
-          # --------------------------------------------------------
-          # INTERNAL CLANG COMPILER TEST
-          # --------------------------------------------------------
 
           echo
           echo "=== INTERNAL HOST CLANG TEST ==="
@@ -683,7 +771,7 @@ jobs:
 
 
       # ============================================================
-      # 12. BUILD KERNEL
+      # 14. BUILD KERNEL
       # ============================================================
       - name: Build kernel
         working-directory: gta9
@@ -728,11 +816,13 @@ jobs:
           echo "OUT_DIR=${OUT_DIR}"
           echo "DIST_DIR=${DIST_DIR}"
 
+
           echo
           echo "=== HOST CLANG ==="
 
           "${HOSTCC}" \
             --version
+
 
           echo
           echo "=== HOST CLANG++ ==="
@@ -740,11 +830,13 @@ jobs:
           "${HOSTCXX}" \
             --version
 
+
           echo
           echo "=== HOST LLD ==="
 
           "${HOSTLD}" \
             --version
+
 
           echo
           echo "========================================"
@@ -762,7 +854,7 @@ jobs:
 
 
       # ============================================================
-      # 13. INSPECT BUILD OUTPUT
+      # 15. INSPECT BUILD OUTPUT
       # ============================================================
       - name: Inspect build output
         if: always()
@@ -802,7 +894,7 @@ jobs:
 
 
       # ============================================================
-      # 14. PREPARE RELEASE
+      # 16. PREPARE RELEASE
       # ============================================================
       - name: Prepare release artifacts
         if: success()
@@ -848,7 +940,7 @@ jobs:
 
 
       # ============================================================
-      # 15. UPLOAD KERNEL
+      # 17. UPLOAD KERNEL
       # ============================================================
       - name: Upload kernel artifacts
         if: success()
@@ -860,7 +952,7 @@ jobs:
 
 
       # ============================================================
-      # 16. PREPARE DEBUG
+      # 18. DEBUG
       # ============================================================
       - name: Prepare debug artifacts
         if: failure()
@@ -877,73 +969,7 @@ jobs:
 
           {
             echo "========================================"
-            echo "MAKE"
-            echo "========================================"
-
-            ls -la \
-              build/build-tools/path/linux-x86/make \
-              2>/dev/null || true
-
-            echo
-            echo "Resolved:"
-            readlink -f \
-              build/build-tools/path/linux-x86/make \
-              2>/dev/null || true
-
-            echo
-            echo "========================================"
-            echo "CLANG"
-            echo "========================================"
-
-            ls -la \
-              build/build-tools/path/linux-x86/clang \
-              2>/dev/null || true
-
-            echo
-            echo "========================================"
-            echo "CLANG REAL"
-            echo "========================================"
-
-            ls -la \
-              build/build-tools/path/linux-x86/clang.real \
-              2>/dev/null || true
-
-            echo
-            echo "========================================"
-            echo "CLANG++"
-            echo "========================================"
-
-            ls -la \
-              build/build-tools/path/linux-x86/clang++ \
-              2>/dev/null || true
-
-            echo
-            echo "========================================"
-            echo "CLANG++ REAL"
-            echo "========================================"
-
-            ls -la \
-              build/build-tools/path/linux-x86/clang++.real \
-              2>/dev/null || true
-
-            echo
-            echo "========================================"
-            echo "LLD"
-            echo "========================================"
-
-            ls -la \
-              build/build-tools/path/linux-x86/lld \
-              2>/dev/null || true
-
-            ls -la \
-              build/build-tools/path/linux-x86/ld.lld \
-              2>/dev/null || true
-
-          } > debug/internal-tools.txt
-
-          {
-            echo "========================================"
-            echo "INTERNAL DIRECTORY"
+            echo "INTERNAL TOOLS"
             echo "========================================"
 
             ls -la \
@@ -952,18 +978,28 @@ jobs:
 
             echo
             echo "========================================"
-            echo "ANDROID CLANG DIRECTORY"
+            echo "LLD DEPENDENCIES"
             echo "========================================"
 
-            ls -la \
-              prebuilts-master/clang/host/linux-x86/clang-r416183b/bin \
+            ldd \
+              build/build-tools/path/linux-x86/lld \
               2>/dev/null || true
 
-          } > debug/toolchain-layout.txt
+            echo
+            echo "========================================"
+            echo "LIBXML2"
+            echo "========================================"
+
+            ldconfig -p \
+              2>/dev/null \
+              | grep libxml2 \
+              || true
+
+          } > debug/toolchain-debug.txt
 
 
       # ============================================================
-      # 17. UPLOAD DEBUG
+      # 19. UPLOAD DEBUG
       # ============================================================
       - name: Upload debug artifacts
         if: failure()
