@@ -161,14 +161,16 @@ jobs:
           ls -la bin | head -50
 
       # ============================================================
-      # 6. VERIFY REAL CLANG
+      # 6. VERIFY REAL CLANG + RESOURCE HEADERS
       # ============================================================
       - name: Verify Android Clang
         working-directory: gta9
         run: |
           set -eux
 
-          CLANG_BIN="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
+          CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b"
+          CLANG_BIN="$CLANG_ROOT/bin"
+          CLANG_RESOURCE_DIR="$CLANG_ROOT/lib/clang/12.0.5"
 
           echo "=== CLANG FILES ==="
 
@@ -188,17 +190,47 @@ jobs:
           "$CLANG_BIN/clang-12" --version
 
           echo
-          echo "=== DIRECT CLANG-12 TEST ==="
+          echo "=== CLANG RESOURCE DIRECTORY ==="
+
+          test -d "$CLANG_RESOURCE_DIR"
+          test -d "$CLANG_RESOURCE_DIR/include"
+
+          echo "CLANG_RESOURCE_DIR=$CLANG_RESOURCE_DIR"
+
+          echo
+          echo "=== REQUIRED BUILTIN HEADERS ==="
+
+          test -f "$CLANG_RESOURCE_DIR/include/stddef.h"
+          test -f "$CLANG_RESOURCE_DIR/include/stdint.h"
+
+          echo "stddef.h OK"
+          echo "stdint.h OK"
+
+          echo
+          echo "=== DIRECT CLANG-12 HEADER TEST ==="
+
+          cat > /tmp/clang-header-test.c <<'EOF'
+          #include <stddef.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+
+          int main(void)
+          {
+              size_t x = 0;
+              uint64_t y = 0;
+              return (int)(x + y);
+          }
+          EOF
 
           "$CLANG_BIN/clang-12" \
             --gcc-toolchain=/usr \
+            -resource-dir="$CLANG_RESOURCE_DIR" \
             -isystem /usr/include/x86_64-linux-gnu \
             -isystem /usr/include \
-            -x c \
-            -c /dev/null \
-            -o /tmp/clang12-test.o
+            -c /tmp/clang-header-test.c \
+            -o /tmp/clang-header-test.o
 
-          echo "Direct clang-12 test PASSED"
+          echo "Direct Clang header test PASSED"
 
       # ============================================================
       # 7. LIBXML2 COMPATIBILITY
@@ -290,15 +322,6 @@ jobs:
 
       # ============================================================
       # 11. PREPARE INTERNAL HOST COMMANDS
-      #
-      # IMPORTANT:
-      # Use "type -P", NOT "command -v".
-      #
-      # command -v echo -> shell builtin "echo"
-      # type -P echo    -> actual /usr/bin/echo
-      #
-      # This prevents self-referencing symlink:
-      # echo -> echo
       # ============================================================
       - name: Prepare internal host tools
         working-directory: gta9
@@ -403,13 +426,6 @@ jobs:
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
           CLANG_BIN="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
-          # IMPORTANT:
-          # Do NOT create:
-          #
-          # clang -> clang.real -> clang
-          #
-          # Use clang-12 directly.
-
           test -x "$CLANG_BIN/clang-12"
 
           rm -f "$TOOL_DIR/clang"
@@ -479,7 +495,7 @@ jobs:
             "$TOOL_DIR/ld.lld"
 
       # ============================================================
-      # 13. TEST INTERNAL CLANG
+      # 13. TEST INTERNAL CLANG + RESOURCE DIRECTORY
       # ============================================================
       - name: Test internal Clang
         working-directory: gta9
@@ -487,6 +503,11 @@ jobs:
           set -eux
 
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
+
+          CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b"
+          CLANG_RESOURCE_DIR="$CLANG_ROOT/lib/clang/12.0.5"
+
+          HOST_CFLAGS="--gcc-toolchain=/usr -resource-dir=$CLANG_RESOURCE_DIR -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
 
           echo "=== INTERNAL CLANG VERSION ==="
 
@@ -498,17 +519,35 @@ jobs:
           "$TOOL_DIR/clang++" --version
 
           echo
-          echo "=== INTERNAL CLANG COMPILE ==="
+          echo "=== INTERNAL CLANG RESOURCE DIR ==="
 
           "$TOOL_DIR/clang" \
-            --gcc-toolchain=/usr \
-            -isystem /usr/include/x86_64-linux-gnu \
-            -isystem /usr/include \
-            -x c \
-            -c /dev/null \
-            -o /tmp/internal-clang-test.o
+            $HOST_CFLAGS \
+            -print-resource-dir
 
-          echo "Internal Clang compile PASSED"
+          echo
+          echo "=== INTERNAL CLANG HEADER COMPILE ==="
+
+          cat > /tmp/internal-clang-header-test.c <<'EOF'
+          #include <stddef.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+
+          int main(void)
+          {
+              size_t x = 0;
+              uint64_t y = 0;
+              return (int)(x + y);
+          }
+          EOF
+
+          "$TOOL_DIR/clang" \
+            $HOST_CFLAGS \
+            -x c \
+            -c /tmp/internal-clang-header-test.c \
+            -o /tmp/internal-clang-header-test.o
+
+          echo "Internal Clang header compile PASSED"
 
           echo
           echo "=== INTERNAL LLD ==="
@@ -529,13 +568,32 @@ jobs:
 
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
 
+          CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b"
+          CLANG_RESOURCE_DIR="$CLANG_ROOT/lib/clang/12.0.5"
+
+          cat > /tmp/full-header-test.c <<'EOF'
+          #include <stddef.h>
+          #include <stdint.h>
+          #include <sys/types.h>
+          #include <stdlib.h>
+          #include <stdio.h>
+
+          int main(void)
+          {
+              size_t x = 0;
+              uint64_t y = 0;
+              return (int)(x + y);
+          }
+          EOF
+
           "$TOOL_DIR/clang" \
             --gcc-toolchain=/usr \
+            -resource-dir="$CLANG_RESOURCE_DIR" \
             -isystem /usr/include/x86_64-linux-gnu \
             -isystem /usr/include \
             -x c \
-            -c /dev/null \
-            -o /tmp/header-test.o
+            -c /tmp/full-header-test.c \
+            -o /tmp/full-header-test.o
 
           echo "Host headers OK"
 
@@ -581,8 +639,6 @@ jobs:
           OUT_DIR: out
           DIST_DIR: out
 
-          # IMPORTANT:
-          # Relative path because build.sh prefixes ROOT_DIR.
           BUILD_CONFIG: out/build.config
 
           HOSTCC: build/build-tools/path/linux-x86/clang
@@ -591,11 +647,13 @@ jobs:
           HOSTAR: /usr/bin/ar
           HOSTLD: build/build-tools/path/linux-x86/ld.lld
 
-          HOSTCFLAGS: "--gcc-toolchain=/usr -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
-          HOSTCXXFLAGS: "--gcc-toolchain=/usr -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
+          HOSTCFLAGS: "--gcc-toolchain=/usr -resource-dir=${{ github.workspace }}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/lib/clang/12.0.5 -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
 
-          KBUILD_HOSTCFLAGS: "--gcc-toolchain=/usr -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
-          KBUILD_HOSTCXXFLAGS: "--gcc-toolchain=/usr -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
+          HOSTCXXFLAGS: "--gcc-toolchain=/usr -resource-dir=${{ github.workspace }}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/lib/clang/12.0.5 -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
+
+          KBUILD_HOSTCFLAGS: "--gcc-toolchain=/usr -resource-dir=${{ github.workspace }}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/lib/clang/12.0.5 -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
+
+          KBUILD_HOSTCXXFLAGS: "--gcc-toolchain=/usr -resource-dir=${{ github.workspace }}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/lib/clang/12.0.5 -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
 
           LD_LIBRARY_PATH: ${{ github.workspace }}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/compat-libs
 
@@ -603,7 +661,11 @@ jobs:
           set -eux
 
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
-          COMPAT="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b/compat-libs"
+
+          CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b"
+          CLANG_RESOURCE_DIR="$CLANG_ROOT/lib/clang/12.0.5"
+
+          COMPAT="$CLANG_ROOT/compat-libs"
 
           export PATH="$TOOL_DIR:$PATH"
           export LD_LIBRARY_PATH="$COMPAT:${LD_LIBRARY_PATH:-}"
@@ -613,11 +675,13 @@ jobs:
           export HOSTAR="/usr/bin/ar"
           export HOSTLD="$TOOL_DIR/ld.lld"
 
-          export HOSTCFLAGS="--gcc-toolchain=/usr -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
-          export HOSTCXXFLAGS="--gcc-toolchain=/usr -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
+          export HOSTCFLAGS="--gcc-toolchain=/usr -resource-dir=$CLANG_RESOURCE_DIR -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
 
-          export KBUILD_HOSTCFLAGS="--gcc-toolchain=/usr -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
-          export KBUILD_HOSTCXXFLAGS="--gcc-toolchain=/usr -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
+          export HOSTCXXFLAGS="--gcc-toolchain=/usr -resource-dir=$CLANG_RESOURCE_DIR -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
+
+          export KBUILD_HOSTCFLAGS="--gcc-toolchain=/usr -resource-dir=$CLANG_RESOURCE_DIR -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
+
+          export KBUILD_HOSTCXXFLAGS="--gcc-toolchain=/usr -resource-dir=$CLANG_RESOURCE_DIR -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include"
 
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -629,8 +693,6 @@ jobs:
           export OUT_DIR="out"
           export DIST_DIR="out"
 
-          # IMPORTANT:
-          # RELATIVE PATH ONLY
           export BUILD_CONFIG="out/build.config"
 
           echo
@@ -643,6 +705,7 @@ jobs:
           echo "HOSTCXX=$HOSTCXX"
           echo "HOSTLD=$HOSTLD"
           echo "BUILD_CONFIG=$BUILD_CONFIG"
+          echo "CLANG_RESOURCE_DIR=$CLANG_RESOURCE_DIR"
           echo "HOSTCFLAGS=$HOSTCFLAGS"
 
           echo
@@ -653,6 +716,19 @@ jobs:
 
           echo
           "$HOSTLD" --version
+
+          echo
+          echo "=== RESOURCE HEADER ==="
+
+          test -f "$CLANG_RESOURCE_DIR/include/stddef.h"
+          echo "stddef.h FOUND"
+
+          echo
+          echo "=== RESOURCE DIR REPORTED BY CLANG ==="
+
+          "$HOSTCC" \
+            $HOSTCFLAGS \
+            -print-resource-dir
 
           echo
           echo "=================================================="
