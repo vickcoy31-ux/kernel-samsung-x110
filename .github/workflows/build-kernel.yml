@@ -16,12 +16,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git wget curl ccache rsync kmod cpio python3 lz4
 
+      - name: Locate Kernel Root Directory
+        id: locate
+        run: |
+          # Cari lokasi Makefile utama kernel
+          MAKEFILE_PATH=$(find . -maxdepth 3 -name "Makefile" -exec grep -l "VERSION =" {} + | head -n 1)
+          if [ -n "$MAKEFILE_PATH" ]; then
+            KERNEL_DIR=$(dirname "$MAKEFILE_PATH")
+            echo "Kernel root ditemukan di: $KERNEL_DIR"
+            echo "kernel_dir=$KERNEL_DIR" >> $GITHUB_OUTPUT
+          else
+            echo "Kernel root tidak ditemukan, menggunakan folder utama."
+            echo "kernel_dir=." >> $GITHUB_OUTPUT
+          fi
+
       - name: Download Clang Toolchain
         run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          git clone --depth=1 url?id=1kdrag0n/proton-clang.git clang
 
       - name: Inject KernelSU Clean Setup
         run: |
+          cd ${{ steps.locate.outputs.kernel_dir }}
           rm -rf drivers/kernelsu
           sed -i '/kernelsu/d' drivers/Kconfig
           sed -i '/kernelsu/d' drivers/Makefile
@@ -31,9 +46,12 @@ jobs:
 
       - name: Start Full Compilation
         run: |
+          # Pindah ke folder kernel hasil pencarian
+          cd ${{ steps.locate.outputs.kernel_dir }}
+          
           export ARCH=arm64
           export SUBARCH=arm64
-          export PATH="$(pwd)/clang/bin:$PATH"
+          export PATH="$(pwd)/../clang/bin:$(pwd)/clang/bin:$PATH"
           export CC=clang
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
@@ -55,4 +73,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: samsung-x110-kernel
-          path: arch/arm64/boot/Image
+          path: ${{ steps.locate.outputs.kernel_dir }}/arch/arm64/boot/Image
