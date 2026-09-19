@@ -87,7 +87,8 @@ jobs:
         run: |
           cd gta9
           CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}"
-          CLANG_RES=$("$CLANG_ROOT/bin/clang-12" -print-resource-dir")
+          # FIX: Menghapus tanda petik berlebih di akhir baris ini
+          CLANG_RES=$("$CLANG_ROOT/bin/clang-12" -print-resource-dir)
           GCC_MACH="$(gcc -dumpmachine)"
           GCC_VER="$(gcc -dumpversion)"
           
@@ -110,7 +111,6 @@ jobs:
           OUT_DIR: out
           DIST_DIR: out
           BUILD_CONFIG: out/build.config
-          # KUNCI PERBAIKAN: Gunakan GCC untuk HOST tools agar tidak error sys/types.h
           HOSTCC: /usr/bin/gcc
           HOSTCXX: /usr/bin/g++
           HOSTLD: /usr/bin/gcc
@@ -118,7 +118,6 @@ jobs:
         run: |
           set -eux
           cd gta9
-          # Kita paksa make menggunakan gcc untuk host tools via command line argument
           ./build/build.sh LLVM_IAS=1 HOSTCC=gcc HOSTCXX=g++ HOSTLD=gcc -j"$(($(nproc)-1))"
 
       # 8. RESULT EXTRACTION
