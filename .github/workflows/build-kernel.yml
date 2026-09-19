@@ -28,6 +28,7 @@ jobs:
             ca-certificates \
             ccache \
             clang \
+            curl \
             flex \
             gcc \
             gcc-aarch64-linux-gnu \
@@ -124,48 +125,9 @@ jobs:
           test -f scripts/gen_build_config.py
 
       # ============================================================
-      # 5. DOWNLOAD ANDROID CLANG
+      # 5. DOWNLOAD ANDROID CLANG r416183b
       # ============================================================
       - name: Download Android Clang r416183b
-        run: |
-          set -eux
-
-          cd gta9
-
-          mkdir -p prebuilts-master/clang/host/linux-x86
-
-          cd prebuilts-master/clang/host/linux-x86
-
-          wget -q \
-            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12L-gsi/clang-r416183b.tar.gz \
-            -O clang-r416183b.tar.gz
-
-          mkdir -p clang-r416183b
-
-          tar \
-            -xzf clang-r416183b.tar.gz \
-            -C clang-r416183b
-
-          rm -f clang-r416183b.tar.gz
-
-          echo
-          echo "=== CLANG ROOT ==="
-          pwd
-
-          ls -la clang-r416183b | head -50
-
-          test -x clang-r416183b/bin/clang-12
-          test -x clang-r416183b/bin/clang++
-
-          echo
-          echo "=== SOURCE CLANG VERSION ==="
-
-          clang-r416183b/bin/clang-12 --version
-
-      # ============================================================
-      # 6. DETECT CLANG RESOURCE DIRECTORY
-      # ============================================================
-            - name: Download Android Clang r416183b
         run: |
           set -eux
 
@@ -180,7 +142,10 @@ jobs:
           rm -f "$CLANG_ARCHIVE"
           rm -rf "$CLANG_ROOT"
 
-          echo "=== DOWNLOAD ANDROID CLANG r416183b ==="
+          echo
+          echo "============================================================"
+          echo "DOWNLOAD ANDROID CLANG r416183b"
+          echo "============================================================"
 
           curl \
             -L \
@@ -226,9 +191,68 @@ jobs:
           "$CLANG_ROOT/bin/clang-12" --version
 
           echo
-          echo "=== CLANG DIRECTORY ==="
+          echo "=== CLANG DIRECTORY SIZE ==="
 
           du -sh "$CLANG_ROOT"
+
+      # ============================================================
+      # 6. DETECT CLANG RESOURCE DIRECTORY
+      # ============================================================
+      - name: Detect Clang resource directory
+        run: |
+          set -eux
+
+          cd gta9
+
+          CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b"
+          CLANG_BIN="$CLANG_ROOT/bin"
+
+          echo
+          echo "============================================================"
+          echo "CLANG RESOURCE DIRECTORY"
+          echo "============================================================"
+
+          RESOURCE_DIR="$("$CLANG_BIN/clang-12" -print-resource-dir)"
+
+          echo
+          echo "Reported resource directory:"
+          echo "$RESOURCE_DIR"
+
+          echo
+          echo "=== SEARCH BUILTIN HEADERS ==="
+
+          find "$CLANG_ROOT" \
+            -type f \
+            \( -name "stddef.h" -o -name "stdint.h" \) \
+            -print
+
+          STDDEF_HEADER="$(
+            find "$CLANG_ROOT" \
+              -type f \
+              -name "stddef.h" \
+              | head -n 1
+          )"
+
+          test -n "$STDDEF_HEADER"
+          test -f "$STDDEF_HEADER"
+
+          echo
+          echo "=== STDDEF HEADER ==="
+          echo "$STDDEF_HEADER"
+
+          CLANG_RESOURCE_DIR="${STDDEF_HEADER%/include/stddef.h}"
+
+          echo
+          echo "=== DETECTED RESOURCE DIR ==="
+          echo "$CLANG_RESOURCE_DIR"
+
+          test -d "$CLANG_RESOURCE_DIR"
+          test -d "$CLANG_RESOURCE_DIR/include"
+
+          echo
+          echo "=== RESOURCE CONTENT ==="
+
+          ls -la "$CLANG_RESOURCE_DIR/include" | head -50
 
       # ============================================================
       # 7. DETECT GCC HOST INCLUDE DIRECTORIES
@@ -246,6 +270,7 @@ jobs:
           GCC_INCLUDE_FIXED="/usr/lib/gcc/$GCC_MACHINE/$GCC_VERSION/include-fixed"
           MULTIARCH_INCLUDE="/usr/include/$GCC_MACHINE"
 
+          echo
           echo "=== GCC MACHINE ==="
           echo "$GCC_MACHINE"
 
@@ -287,22 +312,31 @@ jobs:
 
           mkdir -p "$TOOL_DIR"
 
-          echo "=== TOOL DIRECTORY ==="
-          echo "$TOOL_DIR"
+          echo
+          echo "============================================================"
+          echo "PREPARE LLVM TOOLS"
+          echo "============================================================"
 
-          # Direct binaries.
-          cp -f "$CLANG_BIN/clang-12" "$TOOL_DIR/clang"
-          cp -f "$CLANG_BIN/clang-12" "$TOOL_DIR/clang++"
+          cp -f \
+            "$CLANG_BIN/clang-12" \
+            "$TOOL_DIR/clang"
+
+          cp -f \
+            "$CLANG_BIN/clang-12" \
+            "$TOOL_DIR/clang++"
 
           chmod +x \
             "$TOOL_DIR/clang" \
             "$TOOL_DIR/clang++"
 
-          # LLVM linker.
           if test -x "$CLANG_BIN/lld"; then
-            cp -f "$CLANG_BIN/lld" "$TOOL_DIR/lld"
+            cp -f \
+              "$CLANG_BIN/lld" \
+              "$TOOL_DIR/lld"
           elif test -x "$CLANG_BIN/ld.lld"; then
-            cp -f "$CLANG_BIN/ld.lld" "$TOOL_DIR/lld"
+            cp -f \
+              "$CLANG_BIN/ld.lld" \
+              "$TOOL_DIR/lld"
           else
             echo "ERROR: Android LLD binary not found"
             exit 1
@@ -310,7 +344,9 @@ jobs:
 
           chmod +x "$TOOL_DIR/lld"
 
-          ln -sf lld "$TOOL_DIR/ld.lld"
+          ln -sf \
+            lld \
+            "$TOOL_DIR/ld.lld"
 
           echo
           echo "=== LLVM TOOLS ==="
@@ -341,12 +377,10 @@ jobs:
           mkdir -p "$TOOL_DIR"
           mkdir -p "$COMPAT_DIR"
 
-          echo "=== TOOL DIR ==="
-          echo "$TOOL_DIR"
-
           echo
-          echo "=== COMPAT DIR ==="
-          echo "$COMPAT_DIR"
+          echo "============================================================"
+          echo "PREPARE LLD COMPATIBILITY LIBRARIES"
+          echo "============================================================"
 
           SYSTEM_LIBXML="$(
             ldconfig -p \
@@ -455,9 +489,6 @@ jobs:
             fi
           done
 
-          echo
-          echo "=== HOST COMMANDS ==="
-
           for cmd in \
             echo \
             pwd \
@@ -480,6 +511,9 @@ jobs:
             fi
           done
 
+          echo
+          echo "=== HOST COMMANDS ==="
+
           ls -l \
             "$TOOL_DIR/echo" \
             "$TOOL_DIR/pwd" \
@@ -499,26 +533,40 @@ jobs:
 
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
 
-          ln -sf /usr/bin/make "$TOOL_DIR/make"
-          ln -sf /usr/bin/gcc "$TOOL_DIR/gcc"
-          ln -sf /usr/bin/g++ "$TOOL_DIR/g++"
+          ln -sf /usr/bin/make \
+            "$TOOL_DIR/make"
 
-          ln -sf /usr/bin/aarch64-linux-gnu-gcc "$TOOL_DIR/aarch64-linux-gnu-gcc"
-          ln -sf /usr/bin/aarch64-linux-gnu-g++ "$TOOL_DIR/aarch64-linux-gnu-g++"
+          ln -sf /usr/bin/gcc \
+            "$TOOL_DIR/gcc"
 
-          ln -sf /usr/bin/arm-linux-gnueabi-gcc "$TOOL_DIR/arm-linux-gnueabi-gcc"
-          ln -sf /usr/bin/arm-linux-gnueabi-g++ "$TOOL_DIR/arm-linux-gnueabi-g++"
+          ln -sf /usr/bin/g++ \
+            "$TOOL_DIR/g++"
+
+          ln -sf /usr/bin/aarch64-linux-gnu-gcc \
+            "$TOOL_DIR/aarch64-linux-gnu-gcc"
+
+          ln -sf /usr/bin/aarch64-linux-gnu-g++ \
+            "$TOOL_DIR/aarch64-linux-gnu-g++"
+
+          ln -sf /usr/bin/arm-linux-gnueabi-gcc \
+            "$TOOL_DIR/arm-linux-gnueabi-gcc"
+
+          ln -sf /usr/bin/arm-linux-gnueabi-g++ \
+            "$TOOL_DIR/arm-linux-gnueabi-g++"
 
           echo
           echo "=== MAKE ==="
+
           "$TOOL_DIR/make" --version | head -1
 
           echo
           echo "=== GCC ==="
+
           /usr/bin/gcc --version | head -1
 
           echo
           echo "=== AARCH64 GCC ==="
+
           /usr/bin/aarch64-linux-gnu-gcc --version | head -1
 
       # ============================================================
@@ -533,12 +581,6 @@ jobs:
           python3 -m lib2to3 \
             -w \
             scripts/gen_build_config.py
-
-          echo
-          echo "=== GENERATOR ==="
-
-          python3 scripts/gen_build_config.py \
-            --help || true
 
           test -f scripts/gen_build_config.py
 
@@ -562,7 +604,9 @@ jobs:
             -o out/build.config
 
           echo
-          echo "=== BUILD CONFIG ==="
+          echo "============================================================"
+          echo "BUILD CONFIG"
+          echo "============================================================"
 
           test -f out/build.config
 
@@ -599,6 +643,7 @@ jobs:
           GCC_INCLUDE_FIXED="/usr/lib/gcc/$GCC_MACHINE/$GCC_VERSION/include-fixed"
           MULTIARCH_INCLUDE="/usr/include/$GCC_MACHINE"
 
+          echo
           echo "=== CLANG ROOT ==="
           echo "$CLANG_ROOT"
 
@@ -654,6 +699,7 @@ jobs:
 
           echo
           echo "=== LLD TEST ==="
+
           "$TOOL_DIR/ld.lld" --version
 
       # ============================================================
@@ -675,6 +721,8 @@ jobs:
               | head -n 1
           )"
 
+          test -n "$STDDEF_HEADER"
+
           CLANG_RESOURCE_DIR="${STDDEF_HEADER%/include/stddef.h}"
 
           GCC_MACHINE="$(gcc -dumpmachine)"
@@ -694,7 +742,10 @@ jobs:
 
           export HOSTLDFLAGS="--gcc-toolchain=/usr"
 
-          echo "=== INTERNAL CLANG VERSION ==="
+          echo
+          echo "============================================================"
+          echo "INTERNAL CLANG VERSION"
+          echo "============================================================"
 
           "$TOOL_DIR/clang" --version
 
@@ -760,7 +811,10 @@ jobs:
 
           cd gta9
 
-          echo "=== KERNELSU CONFIG ==="
+          echo
+          echo "============================================================"
+          echo "KERNELSU CONFIG"
+          echo "============================================================"
 
           grep -n \
             'CONFIG_KSU=y' \
@@ -769,7 +823,8 @@ jobs:
           echo
           echo "=== DEFCONFIG ==="
 
-          test -f arch/arm64/configs/gta9_00_defconfig
+          test -f \
+            arch/arm64/configs/gta9_00_defconfig
 
           echo
           echo "=== DTS EUR ==="
@@ -812,6 +867,7 @@ jobs:
           HOSTCXX: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang++
           HOSTAR: /usr/bin/ar
           HOSTLD: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/ld.lld
+
         run: |
           set -eux
 
@@ -857,18 +913,22 @@ jobs:
 
           echo
           echo "=== BUILD CONFIG ==="
+
           test -f out/build.config
 
           echo
           echo "=== CLANG ==="
+
           "$TOOL_DIR/clang" --version
 
           echo
           echo "=== LLD ==="
+
           "$TOOL_DIR/ld.lld" --version
 
           echo
           echo "=== BUILD ENVIRONMENT ==="
+
           echo "ARCH=$ARCH"
           echo "CROSS_COMPILE=$CROSS_COMPILE"
           echo "CROSS_COMPILE_COMPAT=$CROSS_COMPILE_COMPAT"
@@ -883,7 +943,14 @@ jobs:
           echo "CLANG_RESOURCE_DIR=$CLANG_RESOURCE_DIR"
 
           echo
-          echo "=== KERNEL BUILD ==="
+          echo "=== HOSTCFLAGS ==="
+
+          echo "$HOSTCFLAGS"
+
+          echo
+          echo "============================================================"
+          echo "KERNEL BUILD"
+          echo "============================================================"
 
           ./build/build.sh \
             LLVM_IAS=1 \
@@ -904,7 +971,10 @@ jobs:
 
           cd gta9
 
-          echo "=== SEARCH IMAGE.GZ ==="
+          echo
+          echo "============================================================"
+          echo "SEARCH IMAGE.GZ"
+          echo "============================================================"
 
           find out \
             -type f \
@@ -934,6 +1004,7 @@ jobs:
 
           echo
           echo "=== IMAGE ==="
+
           echo "$IMAGE"
 
       # ============================================================
@@ -979,7 +1050,9 @@ jobs:
             package/build.config
 
           echo
-          echo "=== PACKAGE ==="
+          echo "============================================================"
+          echo "PACKAGE"
+          echo "============================================================"
 
           ls -lh package
 
@@ -993,6 +1066,9 @@ jobs:
             .
 
           cd ..
+
+          echo
+          echo "=== FINAL ZIP ==="
 
           ls -lh kernel-gta9-x110.zip
 
@@ -1027,26 +1103,35 @@ jobs:
 
           echo
           echo "=== CURRENT DIRECTORY ==="
+
           pwd
 
           echo
           echo "=== TOP LEVEL ==="
+
           ls -la
 
           echo
           echo "=== OUT DIRECTORY ==="
+
           ls -la out 2>/dev/null || true
 
           echo
           echo "=== BUILD CONFIG ==="
-          sed -n '1,260p' out/build.config 2>/dev/null || true
+
+          sed -n '1,300p' \
+            out/build.config \
+            2>/dev/null || true
 
           echo
           echo "=== KERNELSU ==="
-          git -C KernelSU rev-parse HEAD 2>/dev/null || true
+
+          git -C KernelSU rev-parse HEAD \
+            2>/dev/null || true
 
           echo
           echo "=== CONFIG_KSU ==="
+
           grep -R \
             -n \
             'CONFIG_KSU' \
@@ -1055,18 +1140,21 @@ jobs:
 
           echo
           echo "=== CLANG ==="
+
           build/build-tools/path/linux-x86/clang \
             --version \
             2>/dev/null || true
 
           echo
           echo "=== LLD ==="
+
           build/build-tools/path/linux-x86/ld.lld \
             --version \
             2>/dev/null || true
 
           echo
           echo "=== OUTPUT FILES ==="
+
           find out \
             -type f \
             \( \
