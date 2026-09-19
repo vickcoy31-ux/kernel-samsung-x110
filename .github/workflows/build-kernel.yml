@@ -1,18 +1,80 @@
-- name: Inject KernelSU Clean Setup
+name: Build Kernel Samsung X110
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
         run: |
-          # Cari folder yang punya drivers/Kconfig
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git wget curl ccache rsync kmod cpio python3 lz4 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+      - name: Download Clang Toolchain
+        run: |
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+
+      - name: Inject KernelSU Clean Setup
+        run: |
+          # Cari lokasi folder drivers/Kconfig secara otomatis
           TARGET_DIR=$(find . -maxdepth 3 -type f -path "*/drivers/Kconfig" | head -n 1 | sed 's|/drivers/Kconfig||')
-          
           if [ -n "$TARGET_DIR" ]; then
             cd "$TARGET_DIR"
           fi
-          
+
           echo "Pindah ke folder kernel: $(pwd)"
           
           rm -rf drivers/kernelsu
           sed -i '/kernelsu/d' drivers/Kconfig
           sed -i '/kernelsu/d' drivers/Makefile
-          
+
           git clone --depth=1 https://github.com/tiann/KernelSU.git drivers/kernelsu
           echo 'source "drivers/kernelsu/Kconfig"' >> drivers/Kconfig
           echo 'obj-y += kernelsu/' >> drivers/Makefile
+
+      - name: Start Full Compilation
+        run: |
+          TARGET_DIR=$(find . -maxdepth 3 -type f -path "*/drivers/Kconfig" | head -n 1 | sed 's|/drivers/Kconfig||')
+          if [ -n "$TARGET_DIR" ]; then
+            cd "$TARGET_DIR"
+          fi
+
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH="$(pwd)/../clang/bin:$(pwd)/clang/bin:$PATH"
+          export CC=clang
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+          # Pilihan config gta9
+          if [ -f "arch/arm64/configs/gta9_00_defconfig" ]; then
+            make CC=clang gta9_00_defconfig
+          else
+            CONFIG_PATH=$(find arch/arm64/configs/ -type f \( -iname "*x110*" -o -iname "*gta9*" \) | head -n 1)
+            if [ -n "$CONFIG_PATH" ]; then
+              TARGET_CONFIG=$(echo "$CONFIG_PATH" | sed 's|arch/arm64/configs/||')
+              make CC=clang $TARGET_CONFIG
+            else
+              make CC=clang defconfig
+            fi
+          fi
+
+          chmod +x scripts/config || true
+          scripts/config --enable CONFIG_KSU || echo "CONFIG_KSU=y" >> .config
+
+          echo "Mulai kompilasi Image..."
+          make -j$(nproc) CC=clang Image
+
+      - name: Upload Final Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: samsung-x110-kernel
+          path: "**/arch/arm64/boot/Image"
