@@ -1,6 +1,8 @@
 name: Build Kernel Samsung X110
 
 on:
+  push:
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
@@ -19,7 +21,6 @@ jobs:
       - name: Locate Kernel Root Directory
         id: locate
         run: |
-          # Cari lokasi Makefile utama kernel
           MAKEFILE_PATH=$(find . -maxdepth 3 -name "Makefile" -exec grep -l "VERSION =" {} + | head -n 1)
           if [ -n "$MAKEFILE_PATH" ]; then
             KERNEL_DIR=$(dirname "$MAKEFILE_PATH")
@@ -32,7 +33,7 @@ jobs:
 
       - name: Download Clang Toolchain
         run: |
-          git clone --depth=1 url?id=1kdrag0n/proton-clang.git clang
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
       - name: Inject KernelSU Clean Setup
         run: |
@@ -46,7 +47,6 @@ jobs:
 
       - name: Start Full Compilation
         run: |
-          # Pindah ke folder kernel hasil pencarian
           cd ${{ steps.locate.outputs.kernel_dir }}
           
           export ARCH=arm64
