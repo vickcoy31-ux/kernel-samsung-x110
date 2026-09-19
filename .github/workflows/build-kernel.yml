@@ -46,16 +46,15 @@ jobs:
             device-tree-compiler
 
           echo "========================================"
-          echo "HOST TOOLCHAIN"
+          echo "HOST ENVIRONMENT"
           echo "========================================"
 
           /usr/bin/gcc --version | head -1
-          /usr/bin/g++ --version | head -1
           /usr/bin/make --version | head -1
           /usr/bin/uname -a
 
       # ============================================================
-      # 2. CLONE KERNEL SOURCE
+      # 2. CLONE SOURCE
       # ============================================================
       - name: Clone Kernel Source
         run: |
@@ -70,15 +69,14 @@ jobs:
           cd gta9
 
           echo "========================================"
-          echo "KERNEL SOURCE"
+          echo "SOURCE"
           echo "========================================"
 
           pwd
           git rev-parse --short HEAD
-          ls -la
 
       # ============================================================
-      # 3. INITIALIZE KERNELSU
+      # 3. KERNELSU
       # ============================================================
       - name: Initialize KernelSU
         working-directory: gta9
@@ -96,14 +94,10 @@ jobs:
 
           test -f KernelSU/kernel/Kconfig
 
-          echo "========================================"
-          echo "KSU CONFIG"
-          echo "========================================"
-
-          grep -R "CONFIG_KSU" -n kernel/configs || true
+          grep -n CONFIG_KSU kernel/configs/ot11.config
 
       # ============================================================
-      # 4. PREPARE COMPATIBILITY LAYOUT
+      # 4. BUILD LAYOUT
       # ============================================================
       - name: Prepare Build Layout
         working-directory: gta9
@@ -113,14 +107,14 @@ jobs:
           ln -s . kernel-5.10
           ln -s setup/kernel/build build
 
+          test -f build/build.sh
+
           echo "========================================"
-          echo "LAYOUT"
+          echo "BUILD LAYOUT"
           echo "========================================"
 
           ls -ld kernel-5.10
           ls -ld build
-
-          test -f build/build.sh
 
       # ============================================================
       # 5. DOWNLOAD ANDROID CLANG R416183B
@@ -141,18 +135,19 @@ jobs:
             /tmp/clang-r416183b.tar.gz \
             -C prebuilts-master/clang/host/linux-x86/clang-r416183b
 
+          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
+
           echo "========================================"
-          echo "CLANG"
+          echo "ANDROID CLANG"
           echo "========================================"
 
-          test -x \
-            prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/clang
+          test -x "${CLANG_BIN}/clang"
+          test -x "${CLANG_BIN}/clang++"
 
-          prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/clang \
-            --version
+          "${CLANG_BIN}/clang" --version
 
       # ============================================================
-      # 6. CONVERT PYTHON2 GENERATOR
+      # 6. CONVERT PYTHON GENERATOR
       # ============================================================
       - name: Convert Build Config Generator
         working-directory: gta9
@@ -198,30 +193,34 @@ jobs:
       # ============================================================
       # 8. PATCH CLANG PATH
       # ============================================================
-      - name: Patch Generated Toolchain Path
+      - name: Patch Clang Path
         working-directory: gta9
         run: |
           set -eux
 
-          CLANG_PATH="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
+          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
           if grep -q "^CLANG_PREBUILT_BIN=" out/build.config; then
+
             sed -i \
-              "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=${CLANG_PATH}#" \
+              "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=${CLANG_BIN}#" \
               out/build.config
+
           else
-            echo "CLANG_PREBUILT_BIN=${CLANG_PATH}" \
+
+            echo "CLANG_PREBUILT_BIN=${CLANG_BIN}" \
               >> out/build.config
+
           fi
 
           echo "========================================"
-          echo "CLANG PATH"
+          echo "CLANG CONFIG"
           echo "========================================"
 
           grep "CLANG_PREBUILT_BIN" out/build.config
 
       # ============================================================
-      # 9. VERIFY SOURCE AND HOST GCC
+      # 9. VERIFY
       # ============================================================
       - name: Verify Build Environment
         working-directory: gta9
@@ -244,56 +243,35 @@ jobs:
 
           test -f out/build.config
 
+          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
+
+          echo "========================================"
+          echo "ANDROID CLANG"
+          echo "========================================"
+
+          "${CLANG_BIN}/clang" --version
+
+          echo "========================================"
+          echo "CLANG RTLIB TEST"
+          echo "========================================"
+
+          "${CLANG_BIN}/clang" \
+            --target=aarch64-linux-gnu \
+            --rtlib=compiler-rt \
+            -x c \
+            -c /dev/null \
+            -o /tmp/clang-test.o
+
+          echo "Clang compiler-rt flag: OK"
+
           echo "========================================"
           echo "KSU"
           echo "========================================"
 
           grep -n CONFIG_KSU kernel/configs/ot11.config
 
-          echo "========================================"
-          echo "HOST GCC"
-          echo "========================================"
-
-          /usr/bin/gcc --version | head -1
-
-          echo "========================================"
-          echo "HOST GCC INCLUDE PATH"
-          echo "========================================"
-
-          echo | /usr/bin/gcc -v -E - 2>&1 \
-            | sed -n \
-              '/#include <...> search starts here:/,/End of search list./p'
-
-          echo "========================================"
-          echo "HOST GCC TEST"
-          echo "========================================"
-
-          cat > /tmp/host-test.c <<'EOF'
-          #include <sys/types.h>
-          #include <stdio.h>
-          #include <stdlib.h>
-
-          int main(void)
-          {
-              printf("host compiler OK\n");
-              return 0;
-          }
-          EOF
-
-          /usr/bin/gcc \
-            /tmp/host-test.c \
-            -o /tmp/host-test
-
-          /tmp/host-test
-
-          echo "========================================"
-          echo "UNAME"
-          echo "========================================"
-
-          /usr/bin/uname -a
-
       # ============================================================
-      # 10. BUILD KERNEL
+      # 10. BUILD
       # ============================================================
       - name: Build Kernel
         working-directory: gta9
@@ -301,15 +279,13 @@ jobs:
           set -eux
 
           # --------------------------------------------------------
-          # TARGET TOOLCHAIN
+          # TARGET
           # --------------------------------------------------------
 
           export ARCH=arm64
 
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
-
-          export CLANG_PREBUILT_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
           export LLVM=1
           export LLVM_IAS=1
@@ -320,22 +296,28 @@ jobs:
           export BUILD_CONFIG="out/build.config"
 
           # --------------------------------------------------------
-          # HOST TOOLCHAIN
+          # ANDROID CLANG
           # --------------------------------------------------------
 
-          export HOSTCC=/usr/bin/gcc
-          export HOSTCXX=/usr/bin/g++
-          export HOSTAR=/usr/bin/ar
-          export HOSTLD=/usr/bin/ld
+          export CLANG_PREBUILT_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
+          export PATH="${CLANG_PREBUILT_BIN}:${PATH}"
+
+          # --------------------------------------------------------
           # IMPORTANT:
-          # Do NOT force -I/usr/include here.
-          # GCC automatically handles Ubuntu multiarch headers.
-          unset HOSTCFLAGS || true
-          unset HOSTCXXFLAGS || true
+          #
+          # Host programs such as fixdep must use Clang because
+          # this kernel build passes Clang-specific flags including
+          # --rtlib=compiler-rt.
+          # --------------------------------------------------------
+
+          export HOSTCC="${CLANG_PREBUILT_BIN}/clang"
+          export HOSTCXX="${CLANG_PREBUILT_BIN}/clang++"
+          export HOSTAR=/usr/bin/ar
+          export HOSTLD="${CLANG_PREBUILT_BIN}/ld.lld"
 
           echo "========================================"
-          echo "HOST COMPILER"
+          echo "COMPILERS"
           echo "========================================"
 
           echo "HOSTCC=${HOSTCC}"
@@ -343,11 +325,27 @@ jobs:
           echo "HOSTAR=${HOSTAR}"
           echo "HOSTLD=${HOSTLD}"
 
-          "${HOSTCC}" --version | head -1
-          "${HOSTCXX}" --version | head -1
+          "${HOSTCC}" --version
+          "${HOSTCXX}" --version
+
+          echo "========================================"
+          echo "HOST CLANG RTLIB"
+          echo "========================================"
+
+          echo 'int main(void) { return 0; }' \
+            > /tmp/host-clang-test.c
+
+          "${HOSTCC}" \
+            --rtlib=compiler-rt \
+            /tmp/host-clang-test.c \
+            -o /tmp/host-clang-test
+
+          /tmp/host-clang-test || true
+
+          echo "Host Clang compiler-rt: OK"
 
           # --------------------------------------------------------
-          # BUILD.SH INTERNAL PATH
+          # INTERNAL BUILD.SH TOOLS
           # --------------------------------------------------------
 
           echo "========================================"
@@ -370,9 +368,9 @@ jobs:
             make \
             gcc \
             g++ \
-            ld \
             ar \
             as \
+            ld \
             objcopy \
             objdump \
             strip \
@@ -430,34 +428,58 @@ jobs:
             dtc \
             file
           do
+
             if [ -x "/usr/bin/${cmd}" ]; then
+
               ln -sf \
                 "/usr/bin/${cmd}" \
                 "${BUILD_TOOLS_DIR}/${cmd}"
+
             elif [ -x "/bin/${cmd}" ]; then
+
               ln -sf \
                 "/bin/${cmd}" \
                 "${BUILD_TOOLS_DIR}/${cmd}"
+
             else
+
               echo "WARNING: ${cmd} not found"
+
             fi
+
           done
 
+          # --------------------------------------------------------
+          # Make Clang binaries available to build.sh's PATH.
+          # --------------------------------------------------------
+
+          ln -sf \
+            "${CLANG_PREBUILT_BIN}/clang" \
+            "${BUILD_TOOLS_DIR}/clang"
+
+          ln -sf \
+            "${CLANG_PREBUILT_BIN}/clang++" \
+            "${BUILD_TOOLS_DIR}/clang++"
+
+          ln -sf \
+            "${CLANG_PREBUILT_BIN}/ld.lld" \
+            "${BUILD_TOOLS_DIR}/ld.lld"
+
           echo "========================================"
-          echo "INTERNAL TOOL CHECK"
+          echo "INTERNAL TOOLS"
           echo "========================================"
 
           test -x "${BUILD_TOOLS_DIR}/uname"
           test -x "${BUILD_TOOLS_DIR}/make"
-          test -x "${BUILD_TOOLS_DIR}/gcc"
-          test -x "${BUILD_TOOLS_DIR}/mkdir"
+          test -x "${BUILD_TOOLS_DIR}/clang"
+          test -x "${BUILD_TOOLS_DIR}/clang++"
+          test -x "${BUILD_TOOLS_DIR}/ld.lld"
 
-          "${BUILD_TOOLS_DIR}/uname" -a
+          "${BUILD_TOOLS_DIR}/clang" --version
           "${BUILD_TOOLS_DIR}/make" --version | head -1
-          "${BUILD_TOOLS_DIR}/gcc" --version | head -1
 
           echo "========================================"
-          echo "BUILD CONFIG CHECK"
+          echo "BUILD CONFIG"
           echo "========================================"
 
           test -f "${BUILD_CONFIG}"
@@ -471,10 +493,11 @@ jobs:
           echo "========================================"
 
           ./build/build.sh \
-            HOSTCC=/usr/bin/gcc \
-            HOSTCXX=/usr/bin/g++ \
-            HOSTAR=/usr/bin/ar \
-            HOSTLD=/usr/bin/ld \
+            HOSTCC="${HOSTCC}" \
+            HOSTCXX="${HOSTCXX}" \
+            HOSTAR="${HOSTAR}" \
+            HOSTLD="${HOSTLD}" \
+            LLVM=1 \
             LLVM_IAS=1 \
             -j"$(nproc)"
 
@@ -575,7 +598,7 @@ jobs:
           fi
 
           echo "========================================"
-          echo "RELEASE FILES"
+          echo "RELEASE"
           echo "========================================"
 
           ls -lah release
@@ -583,7 +606,7 @@ jobs:
           test "$(find release -type f | wc -l)" -gt 0
 
       # ============================================================
-      # 13. UPLOAD SUCCESSFUL KERNEL
+      # 13. UPLOAD KERNEL
       # ============================================================
       - name: Upload Kernel Artifacts
         if: success()
@@ -595,7 +618,7 @@ jobs:
           retention-days: 7
 
       # ============================================================
-      # 14. UPLOAD SMALL DEBUG FILES ONLY ON FAILURE
+      # 14. DEBUG CONFIG ONLY ON FAILURE
       # ============================================================
       - name: Upload Debug Config
         if: failure()
