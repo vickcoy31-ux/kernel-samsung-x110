@@ -49,10 +49,10 @@ jobs:
           echo "HOST TOOLCHAIN"
           echo "========================================"
 
-          gcc --version | head -1
-          g++ --version | head -1
-          make --version | head -1
-          uname -a
+          /usr/bin/gcc --version | head -1
+          /usr/bin/g++ --version | head -1
+          /usr/bin/make --version | head -1
+          /usr/bin/uname -a
 
       # ============================================================
       # 2. CLONE KERNEL SOURCE
@@ -206,26 +206,22 @@ jobs:
           CLANG_PATH="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
           if grep -q "^CLANG_PREBUILT_BIN=" out/build.config; then
-
             sed -i \
               "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=${CLANG_PATH}#" \
               out/build.config
-
           else
-
             echo "CLANG_PREBUILT_BIN=${CLANG_PATH}" \
               >> out/build.config
-
           fi
 
           echo "========================================"
-          echo "FINAL TOOLCHAIN PATH"
+          echo "CLANG PATH"
           echo "========================================"
 
           grep "CLANG_PREBUILT_BIN" out/build.config
 
       # ============================================================
-      # 9. VERIFY SOURCE
+      # 9. VERIFY SOURCE AND HOST GCC
       # ============================================================
       - name: Verify Build Environment
         working-directory: gta9
@@ -249,10 +245,10 @@ jobs:
           test -f out/build.config
 
           echo "========================================"
-          echo "DEFCONFIG"
+          echo "KSU"
           echo "========================================"
 
-          grep -n "CONFIG_KSU" kernel/configs/ot11.config || true
+          grep -n CONFIG_KSU kernel/configs/ot11.config
 
           echo "========================================"
           echo "HOST GCC"
@@ -261,12 +257,34 @@ jobs:
           /usr/bin/gcc --version | head -1
 
           echo "========================================"
-          echo "HOST HEADERS"
+          echo "HOST GCC INCLUDE PATH"
           echo "========================================"
 
-          test -f /usr/include/sys/types.h
+          echo | /usr/bin/gcc -v -E - 2>&1 \
+            | sed -n \
+              '/#include <...> search starts here:/,/End of search list./p'
 
-          echo "sys/types.h OK"
+          echo "========================================"
+          echo "HOST GCC TEST"
+          echo "========================================"
+
+          cat > /tmp/host-test.c <<'EOF'
+          #include <sys/types.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+
+          int main(void)
+          {
+              printf("host compiler OK\n");
+              return 0;
+          }
+          EOF
+
+          /usr/bin/gcc \
+            /tmp/host-test.c \
+            -o /tmp/host-test
+
+          /tmp/host-test
 
           echo "========================================"
           echo "UNAME"
@@ -303,11 +321,6 @@ jobs:
 
           # --------------------------------------------------------
           # HOST TOOLCHAIN
-          #
-          # IMPORTANT:
-          # Android clang is for the ARM64 kernel.
-          # GCC system is used for Linux host programs such as
-          # scripts/basic/fixdep.
           # --------------------------------------------------------
 
           export HOSTCC=/usr/bin/gcc
@@ -315,11 +328,11 @@ jobs:
           export HOSTAR=/usr/bin/ar
           export HOSTLD=/usr/bin/ld
 
-          export HOSTCFLAGS="-I/usr/include"
-          export HOSTCXXFLAGS="-I/usr/include"
-
-          export HOSTCC="${HOSTCC}"
-          export HOSTCXX="${HOSTCXX}"
+          # IMPORTANT:
+          # Do NOT force -I/usr/include here.
+          # GCC automatically handles Ubuntu multiarch headers.
+          unset HOSTCFLAGS || true
+          unset HOSTCXXFLAGS || true
 
           echo "========================================"
           echo "HOST COMPILER"
@@ -330,8 +343,12 @@ jobs:
           echo "HOSTAR=${HOSTAR}"
           echo "HOSTLD=${HOSTLD}"
 
-          ${HOSTCC} --version | head -1
-          ${HOSTCXX} --version | head -1
+          "${HOSTCC}" --version | head -1
+          "${HOSTCXX}" --version | head -1
+
+          # --------------------------------------------------------
+          # BUILD.SH INTERNAL PATH
+          # --------------------------------------------------------
 
           echo "========================================"
           echo "PREPARING BUILD TOOLS"
@@ -340,11 +357,6 @@ jobs:
           BUILD_TOOLS_DIR="${GITHUB_WORKSPACE}/gta9/build/build-tools/path/linux-x86"
 
           mkdir -p "${BUILD_TOOLS_DIR}"
-
-          # --------------------------------------------------------
-          # build.sh replaces PATH internally.
-          # Expose required host commands inside its PATH.
-          # --------------------------------------------------------
 
           for cmd in \
             uname \
@@ -419,26 +431,20 @@ jobs:
             file
           do
             if [ -x "/usr/bin/${cmd}" ]; then
-
               ln -sf \
                 "/usr/bin/${cmd}" \
                 "${BUILD_TOOLS_DIR}/${cmd}"
-
             elif [ -x "/bin/${cmd}" ]; then
-
               ln -sf \
                 "/bin/${cmd}" \
                 "${BUILD_TOOLS_DIR}/${cmd}"
-
             else
-
               echo "WARNING: ${cmd} not found"
-
             fi
           done
 
           echo "========================================"
-          echo "VERIFY INTERNAL PATH TOOLS"
+          echo "INTERNAL TOOL CHECK"
           echo "========================================"
 
           test -x "${BUILD_TOOLS_DIR}/uname"
@@ -446,17 +452,12 @@ jobs:
           test -x "${BUILD_TOOLS_DIR}/gcc"
           test -x "${BUILD_TOOLS_DIR}/mkdir"
 
-          echo "uname:"
           "${BUILD_TOOLS_DIR}/uname" -a
-
-          echo "make:"
           "${BUILD_TOOLS_DIR}/make" --version | head -1
-
-          echo "gcc:"
           "${BUILD_TOOLS_DIR}/gcc" --version | head -1
 
           echo "========================================"
-          echo "BUILD CONFIG"
+          echo "BUILD CONFIG CHECK"
           echo "========================================"
 
           test -f "${BUILD_CONFIG}"
@@ -466,7 +467,7 @@ jobs:
             "${BUILD_CONFIG}"
 
           echo "========================================"
-          echo "STARTING BUILD"
+          echo "STARTING KERNEL BUILD"
           echo "========================================"
 
           ./build/build.sh \
@@ -551,50 +552,30 @@ jobs:
             \) \
             -print
 
-          # --------------------------------------------------------
-          # KERNEL IMAGE
-          # --------------------------------------------------------
-
           if [ -f out/kernel-5.10/arch/arm64/boot/Image.gz ]; then
-
             cp \
               out/kernel-5.10/arch/arm64/boot/Image.gz \
               release/Image.gz
-
           elif [ -f out/kernel-5.10/arch/arm64/boot/Image ]; then
-
             cp \
               out/kernel-5.10/arch/arm64/boot/Image \
               release/Image
-
           fi
 
-          # --------------------------------------------------------
-          # DTB
-          # --------------------------------------------------------
-
           if [ -f out/kernel-5.10/arch/arm64/boot/dts/mediatek/mt6789.dtb ]; then
-
             cp \
               out/kernel-5.10/arch/arm64/boot/dts/mediatek/mt6789.dtb \
               release/mt6789.dtb
-
           fi
 
-          # --------------------------------------------------------
-          # DTBO
-          # --------------------------------------------------------
-
           if [ -f out/kernel-5.10/arch/arm64/boot/dts/mediatek/mt8781_gta9_eur_open_00.dtbo ]; then
-
             cp \
               out/kernel-5.10/arch/arm64/boot/dts/mediatek/mt8781_gta9_eur_open_00.dtbo \
               release/mt8781_gta9_eur_open_00.dtbo
-
           fi
 
           echo "========================================"
-          echo "RELEASE"
+          echo "RELEASE FILES"
           echo "========================================"
 
           ls -lah release
@@ -602,7 +583,7 @@ jobs:
           test "$(find release -type f | wc -l)" -gt 0
 
       # ============================================================
-      # 13. UPLOAD KERNEL
+      # 13. UPLOAD SUCCESSFUL KERNEL
       # ============================================================
       - name: Upload Kernel Artifacts
         if: success()
@@ -614,7 +595,7 @@ jobs:
           retention-days: 7
 
       # ============================================================
-      # 14. UPLOAD SMALL DEBUG OUTPUT ONLY ON FAILURE
+      # 14. UPLOAD SMALL DEBUG FILES ONLY ON FAILURE
       # ============================================================
       - name: Upload Debug Config
         if: failure()
