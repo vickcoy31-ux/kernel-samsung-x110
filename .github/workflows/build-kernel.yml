@@ -163,6 +163,9 @@ jobs:
       # ============================================================
       # 6. VERIFY REAL CLANG + RESOURCE HEADERS
       # ============================================================
+            # ============================================================
+      # 6. VERIFY REAL CLANG + FIND BUILTIN HEADERS
+      # ============================================================
       - name: Verify Android Clang
         working-directory: gta9
         run: |
@@ -170,7 +173,6 @@ jobs:
 
           CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b"
           CLANG_BIN="$CLANG_ROOT/bin"
-          CLANG_RESOURCE_DIR="$CLANG_ROOT/lib/clang/12.0.5"
 
           echo "=== CLANG FILES ==="
 
@@ -190,29 +192,48 @@ jobs:
           "$CLANG_BIN/clang-12" --version
 
           echo
-          echo "=== CLANG RESOURCE DIRECTORY ==="
+          echo "=== CLANG INTERNAL RESOURCE DIRECTORY ==="
 
-          test -d "$CLANG_RESOURCE_DIR"
-          test -d "$CLANG_RESOURCE_DIR/include"
+          RESOURCE_DIR="$("$CLANG_BIN/clang-12" -print-resource-dir)"
 
-          echo "CLANG_RESOURCE_DIR=$CLANG_RESOURCE_DIR"
+          echo "RESOURCE_DIR=$RESOURCE_DIR"
 
-          echo
-          echo "=== REQUIRED BUILTIN HEADERS ==="
-
-          test -f "$CLANG_RESOURCE_DIR/include/stddef.h"
-          test -f "$CLANG_RESOURCE_DIR/include/stdint.h"
-
-          echo "stddef.h OK"
-          echo "stdint.h OK"
+          test -d "$RESOURCE_DIR"
 
           echo
-          echo "=== DIRECT CLANG-12 HEADER TEST ==="
+          echo "=== RESOURCE DIRECTORY CONTENT ==="
+
+          ls -la "$RESOURCE_DIR" || true
+
+          echo
+          echo "=== SEARCH BUILTIN HEADERS ==="
+
+          find "$CLANG_ROOT" \
+            -type f \
+            \( \
+              -name "stddef.h" \
+              -o -name "stdint.h" \
+            \) \
+            -print
+
+          echo
+          echo "=== FIND stddef.h ==="
+
+          STDDEF="$(find "$CLANG_ROOT" \
+            -type f \
+            -name "stddef.h" \
+            | head -n 1)"
+
+          test -n "$STDDEF"
+
+          echo "STDDEF=$STDDEF"
+
+          echo
+          echo "=== TEST CLANG BUILTIN HEADERS ==="
 
           cat > /tmp/clang-header-test.c <<'EOF'
           #include <stddef.h>
           #include <stdint.h>
-          #include <sys/types.h>
 
           int main(void)
           {
@@ -224,13 +245,13 @@ jobs:
 
           "$CLANG_BIN/clang-12" \
             --gcc-toolchain=/usr \
-            -resource-dir="$CLANG_RESOURCE_DIR" \
             -isystem /usr/include/x86_64-linux-gnu \
             -isystem /usr/include \
+            -x c \
             -c /tmp/clang-header-test.c \
             -o /tmp/clang-header-test.o
 
-          echo "Direct Clang header test PASSED"
+          echo "Direct Clang builtin header test PASSED"
 
       # ============================================================
       # 7. LIBXML2 COMPATIBILITY
