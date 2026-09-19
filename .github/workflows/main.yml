@@ -42,8 +42,8 @@ jobs:
           mkdir -p gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
           tar -xzf gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}.tar.gz -C gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
 
-      # 4. SAMSUNG BUILD SYSTEM LAYOUT
-      - name: Configure Samsung Build Layout
+      # 4. SAMSUNG BUILD SYSTEM LAYOUT & HEADER FIX
+      - name: Configure Samsung Build Layout and Headers
         run: |
           cd gta9
           ln -sf . kernel-5.10
@@ -52,6 +52,13 @@ jobs:
           CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}"
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
           mkdir -p "$TOOL_DIR"
+
+          # --- TRICK HEADER: Paksa Clang melihat header Ubuntu ---
+          mkdir -p "$CLANG_ROOT/include"
+          ln -sf /usr/include/x86_64-linux-gnu/sys "$CLANG_ROOT/include/sys"
+          ln -sf /usr/include/x86_64-linux-gnu/bits "$CLANG_ROOT/include/bits"
+          ln -sf /usr/include/x86_64-linux-gnu/linux "$CLANG_ROOT/include/linux"
+          # -----------------------------------------------------
 
           cp -f "$CLANG_ROOT/bin/clang-12" "$TOOL_DIR/clang"
           cp -f "$CLANG_ROOT/bin/clang-12" "$TOOL_DIR/clang++"
@@ -87,7 +94,6 @@ jobs:
         run: |
           cd gta9
           CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}"
-          # FIX: Menghapus tanda petik berlebih di akhir baris ini
           CLANG_RES=$("$CLANG_ROOT/bin/clang-12" -print-resource-dir)
           GCC_MACH="$(gcc -dumpmachine)"
           GCC_VER="$(gcc -dumpversion)"
@@ -111,14 +117,14 @@ jobs:
           OUT_DIR: out
           DIST_DIR: out
           BUILD_CONFIG: out/build.config
-          HOSTCC: /usr/bin/gcc
-          HOSTCXX: /usr/bin/g++
-          HOSTLD: /usr/bin/gcc
+          HOSTCC: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang
+          HOSTCXX: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang++
+          HOSTLD: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/ld.lld
           KCFLAGS: "-Wno-error"
         run: |
           set -eux
           cd gta9
-          ./build/build.sh LLVM_IAS=1 HOSTCC=gcc HOSTCXX=g++ HOSTLD=gcc -j"$(($(nproc)-1))"
+          ./build/build.sh LLVM_IAS=1 -j"$(($(nproc)-1))"
 
       # 8. RESULT EXTRACTION
       - name: Package and Upload
