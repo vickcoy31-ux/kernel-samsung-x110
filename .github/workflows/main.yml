@@ -16,7 +16,8 @@ jobs:
       - name: Install Host Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ca-certificates ccache clang curl flex gcc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev libssl-dev libxml2 libxml2-dev lld make python3 python3-distutils rsync unzip wget xz-utils zip
+          # Menambahkan coreutils untuk memastikan realpath ada
+          sudo apt-get install -y bc bison build-essential ca-certificates ccache clang curl flex gcc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev libssl-dev libxml2 libxml2-dev lld make python3 python3-distutils rsync unzip wget xz-utils zip coreutils
 
       # 2. CLONE SOURCE & KERNELSU
       - name: Clone Source & Submodules
@@ -57,6 +58,9 @@ jobs:
           cp -f "$CLANG_ROOT/bin/clang-12" "$TOOL_DIR/clang++"
           cp -f "$CLANG_ROOT/bin/ld.lld" "$TOOL_DIR/lld" 2>/dev/null || cp -f "$CLANG_ROOT/bin/lld" "$TOOL_DIR/lld"
           ln -sf lld "$TOOL_DIR/ld.lld"
+
+          # Menambahkan realpath ke folder tools agar tidak error 127
+          ln -sf /usr/bin/realpath "$TOOL_DIR/realpath"
 
           COMMANDS="ar as awk basename bash cat chmod cmp cp cut date dirname du env expr find grep head ld ln mkdir mktemp mv nproc objcopy objdump od printf pwd readlink rm sed sort stat tail tar test touch tr uname uniq wc which xargs zip make gcc g++ aarch64-linux-gnu-gcc aarch64-linux-gnu-g++ arm-linux-gnueabi-gcc arm-linux-gnueabi-g++"
           for cmd in $COMMANDS; do
