@@ -12,17 +12,17 @@ jobs:
       CLANG_URL: "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12L-gsi/clang-r416183b.tar.gz"
 
     steps:
-      # 1. INSTALL DEPENDENCIES (Adding Native Clang & LLD)
+      # 1. INSTALL DEPENDENCIES (Fixed: Removed compiler-rt)
       - name: Install Host Dependencies
         run: |
           sudo apt-get update
-          # Kita instal clang, lld, dan compiler-rt versi Ubuntu untuk handle Host Tools
-          sudo apt-get install -y bc bison build-essential ca-certificates ccache clang lld compiler-rt curl flex gcc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev libssl-dev libxml2 libxml2-dev make python3 python3-distutils rsync unzip wget xz-utils zip coreutils linux-libc-dev
+          # Kita hapus compiler-rt karena sudah termasuk dalam clang dan lld
+          sudo apt-get install -y bc bison build-essential ca-certificates ccache clang lld curl flex gcc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev libssl-dev libxml2 libxml2-dev make python3 python3-distutils rsync unzip wget xz-utils zip coreutils linux-libc-dev
 
       # 2. CLONE SOURCE & KERNELSU
       - name: Clone Source & Submodules
         run: |
-          git clone --depth=1 --branch,15.0 https://github.com/prabhatkrmishra/kernel_samsung_gta9.git gta9
+          git clone --depth=1 --branch 15.0 https://github.com/prabhatkrmishra/kernel_samsung_gta9.git gta9
           cd gta9
           git submodule sync --recursive
           git submodule update --init --depth=1
@@ -43,7 +43,7 @@ jobs:
           mkdir -p gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
           tar -xzf gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}.tar.gz -C gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
 
-      # 4. SAMSUNG BUILD SYSTEM LAYOUT (Using Native Tools for Host)
+      # 4. SAMSUNG BUILD SYSTEM LAYOUT
       - name: Configure Samsung Build Layout
         run: |
           cd gta9
@@ -53,8 +53,7 @@ jobs:
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
           mkdir -p "$TOOL_DIR"
 
-          # KUNCI PERBAIKAN: Gunakan Native Ubuntu Clang/LLD untuk folder build-tools
-          # Ini agar fixdep dan host-tools lainnya tidak error crt1.o
+          # KUNCI: Gunakan Native Ubuntu Clang/LLD untuk folder build-tools
           ln -sf /usr/bin/clang "$TOOL_DIR/clang"
           ln -sf /usr/bin/clang++ "$TOOL_DIR/clang++"
           ln -sf /usr/bin/ld.lld "$TOOL_DIR/ld.lld"
@@ -93,7 +92,6 @@ jobs:
           GCC_MACH="$(gcc -dumpmachine)"
           GCC_VER="$(gcc -dumpversion)"
           
-          # Di sini kita tetap arahkan ke Android Clang untuk build kernel utama
           sed -i "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=$CLANG_ROOT/bin#" out/build.config
 
           echo "PATH=$PWD/build/build-tools/path/linux-x86:\$PATH" >> $GITHUB_ENV
