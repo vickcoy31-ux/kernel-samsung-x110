@@ -209,50 +209,82 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "CLANG RESOURCE DIRECTORY"
+          echo "DETECT CLANG RESOURCE DIRECTORY"
           echo "============================================================"
 
-          RESOURCE_DIR="$("$CLANG_BIN/clang-12" -print-resource-dir)"
-
           echo
-          echo "Reported resource directory:"
-          echo "$RESOURCE_DIR"
+          echo "=== CLANG REPORTED RESOURCE DIR ==="
 
-          echo
-          echo "=== SEARCH BUILTIN HEADERS ==="
-
-          find "$CLANG_ROOT" \
-            -type f \
-            \( -name "stddef.h" -o -name "stdint.h" \) \
-            -print
-
-          STDDEF_HEADER="$(
-            find "$CLANG_ROOT" \
-              -type f \
-              -name "stddef.h" \
-              | head -n 1
+          REPORTED_RESOURCE_DIR="$(
+            "$CLANG_BIN/clang-12" -print-resource-dir
           )"
 
-          test -n "$STDDEF_HEADER"
-          test -f "$STDDEF_HEADER"
+          echo "$REPORTED_RESOURCE_DIR"
 
           echo
-          echo "=== STDDEF HEADER ==="
-          echo "$STDDEF_HEADER"
+          echo "=== VERIFY REPORTED RESOURCE DIR ==="
 
-          CLANG_RESOURCE_DIR="${STDDEF_HEADER%/include/stddef.h}"
+          if test -d "$REPORTED_RESOURCE_DIR"; then
+            echo "Reported resource directory exists."
+
+            CLANG_RESOURCE_DIR="$REPORTED_RESOURCE_DIR"
+          else
+            echo "Reported resource directory does not exist."
+            echo "Searching archive for actual Clang builtin headers..."
+
+            BUILTIN_STDDEF="$(
+              find "$CLANG_ROOT" \
+                -type f \
+                -path '*/include/stddef.h' \
+                ! -path '*/include/c++/*' \
+                ! -path '*/include/c++/v1/*' \
+                | head -n 1
+            )"
+
+            if test -z "$BUILTIN_STDDEF"; then
+              echo "ERROR: Clang builtin stddef.h not found."
+              echo
+              echo "All stddef.h files found:"
+              find "$CLANG_ROOT" \
+                -type f \
+                -name 'stddef.h' \
+                -print
+              exit 1
+            fi
+
+            echo
+            echo "=== BUILTIN STDDEF ==="
+            echo "$BUILTIN_STDDEF"
+
+            CLANG_RESOURCE_DIR="${BUILTIN_STDDEF%/include/stddef.h}"
+          fi
 
           echo
-          echo "=== DETECTED RESOURCE DIR ==="
+          echo "=== FINAL CLANG RESOURCE DIR ==="
           echo "$CLANG_RESOURCE_DIR"
 
           test -d "$CLANG_RESOURCE_DIR"
+
           test -d "$CLANG_RESOURCE_DIR/include"
 
           echo
-          echo "=== RESOURCE CONTENT ==="
+          echo "=== RESOURCE INCLUDE DIRECTORY ==="
 
-          ls -la "$CLANG_RESOURCE_DIR/include" | head -50
+          ls -la "$CLANG_RESOURCE_DIR/include" | head -80
+
+          echo
+          echo "=== BUILTIN STDDEF CHECK ==="
+
+          test -f "$CLANG_RESOURCE_DIR/include/stddef.h"
+
+          echo
+          echo "=== BUILTIN STDINT CHECK ==="
+
+          if test -f "$CLANG_RESOURCE_DIR/include/stdint.h"; then
+            echo "stdint.h found."
+          else
+            echo "stdint.h not directly present; continuing."
+          fi
 
       # ============================================================
       # 7. DETECT GCC HOST INCLUDE DIRECTORIES
@@ -372,6 +404,7 @@ jobs:
           cd gta9
 
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
+
           COMPAT_DIR="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b/compat-libs"
 
           mkdir -p "$TOOL_DIR"
@@ -625,16 +658,38 @@ jobs:
           CLANG_BIN="$CLANG_ROOT/bin"
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
 
-          STDDEF_HEADER="$(
-            find "$CLANG_ROOT" \
-              -type f \
-              -name "stddef.h" \
-              | head -n 1
+          echo
+          echo "============================================================"
+          echo "CONFIGURE ANDROID CLANG"
+          echo "============================================================"
+
+          REPORTED_RESOURCE_DIR="$(
+            "$CLANG_BIN/clang-12" -print-resource-dir
           )"
 
-          test -n "$STDDEF_HEADER"
+          if test -d "$REPORTED_RESOURCE_DIR"; then
+            CLANG_RESOURCE_DIR="$REPORTED_RESOURCE_DIR"
+          else
+            BUILTIN_STDDEF="$(
+              find "$CLANG_ROOT" \
+                -type f \
+                -path '*/include/stddef.h' \
+                ! -path '*/include/c++/*' \
+                ! -path '*/include/c++/v1/*' \
+                | head -n 1
+            )"
 
-          CLANG_RESOURCE_DIR="${STDDEF_HEADER%/include/stddef.h}"
+            test -n "$BUILTIN_STDDEF"
+
+            CLANG_RESOURCE_DIR="${BUILTIN_STDDEF%/include/stddef.h}"
+          fi
+
+          echo
+          echo "=== CLANG RESOURCE DIR ==="
+          echo "$CLANG_RESOURCE_DIR"
+
+          test -d "$CLANG_RESOURCE_DIR"
+          test -d "$CLANG_RESOURCE_DIR/include"
 
           GCC_MACHINE="$(gcc -dumpmachine)"
           GCC_VERSION="$(gcc -dumpversion)"
@@ -643,26 +698,21 @@ jobs:
           GCC_INCLUDE_FIXED="/usr/lib/gcc/$GCC_MACHINE/$GCC_VERSION/include-fixed"
           MULTIARCH_INCLUDE="/usr/include/$GCC_MACHINE"
 
-          echo
-          echo "=== CLANG ROOT ==="
-          echo "$CLANG_ROOT"
-
-          echo
-          echo "=== CLANG RESOURCE DIR ==="
-          echo "$CLANG_RESOURCE_DIR"
+          test -d "$GCC_INCLUDE"
+          test -d "$GCC_INCLUDE_FIXED"
+          test -d "$MULTIARCH_INCLUDE"
 
           echo
           echo "=== GCC INCLUDE ==="
           echo "$GCC_INCLUDE"
 
           echo
+          echo "=== GCC INCLUDE FIXED ==="
+          echo "$GCC_INCLUDE_FIXED"
+
+          echo
           echo "=== MULTIARCH INCLUDE ==="
           echo "$MULTIARCH_INCLUDE"
-
-          test -d "$CLANG_RESOURCE_DIR/include"
-          test -d "$GCC_INCLUDE"
-          test -d "$GCC_INCLUDE_FIXED"
-          test -d "$MULTIARCH_INCLUDE"
 
           echo
           echo "=== PATCH BUILD CONFIG ==="
@@ -714,16 +764,38 @@ jobs:
           CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b"
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
 
-          STDDEF_HEADER="$(
-            find "$CLANG_ROOT" \
-              -type f \
-              -name "stddef.h" \
-              | head -n 1
+          echo
+          echo "============================================================"
+          echo "VERIFY INTERNAL ANDROID CLANG"
+          echo "============================================================"
+
+          REPORTED_RESOURCE_DIR="$(
+            "$TOOL_DIR/clang" -print-resource-dir
           )"
 
-          test -n "$STDDEF_HEADER"
+          echo
+          echo "=== INTERNAL CLANG RESOURCE DIR ==="
+          echo "$REPORTED_RESOURCE_DIR"
 
-          CLANG_RESOURCE_DIR="${STDDEF_HEADER%/include/stddef.h}"
+          if test -d "$REPORTED_RESOURCE_DIR"; then
+            CLANG_RESOURCE_DIR="$REPORTED_RESOURCE_DIR"
+          else
+            BUILTIN_STDDEF="$(
+              find "$CLANG_ROOT" \
+                -type f \
+                -path '*/include/stddef.h' \
+                ! -path '*/include/c++/*' \
+                ! -path '*/include/c++/v1/*' \
+                | head -n 1
+            )"
+
+            test -n "$BUILTIN_STDDEF"
+
+            CLANG_RESOURCE_DIR="${BUILTIN_STDDEF%/include/stddef.h}"
+          fi
+
+          test -d "$CLANG_RESOURCE_DIR"
+          test -f "$CLANG_RESOURCE_DIR/include/stddef.h"
 
           GCC_MACHINE="$(gcc -dumpmachine)"
           GCC_VERSION="$(gcc -dumpversion)"
@@ -743,17 +815,15 @@ jobs:
           export HOSTLDFLAGS="--gcc-toolchain=/usr"
 
           echo
-          echo "============================================================"
-          echo "INTERNAL CLANG VERSION"
-          echo "============================================================"
+          echo "=== INTERNAL CLANG VERSION ==="
 
           "$TOOL_DIR/clang" --version
 
           echo
-          echo "=== INTERNAL CLANG RESOURCE DIR ==="
+          echo "=== RESOURCE HEADER ==="
 
-          "$TOOL_DIR/clang" \
-            -print-resource-dir
+          ls -l \
+            "$CLANG_RESOURCE_DIR/include/stddef.h"
 
           echo
           echo "=== TEST HEADER ==="
@@ -876,16 +946,29 @@ jobs:
           CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/clang-r416183b"
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
 
-          STDDEF_HEADER="$(
-            find "$CLANG_ROOT" \
-              -type f \
-              -name "stddef.h" \
-              | head -n 1
+          REPORTED_RESOURCE_DIR="$(
+            "$TOOL_DIR/clang" -print-resource-dir
           )"
 
-          test -n "$STDDEF_HEADER"
+          if test -d "$REPORTED_RESOURCE_DIR"; then
+            CLANG_RESOURCE_DIR="$REPORTED_RESOURCE_DIR"
+          else
+            BUILTIN_STDDEF="$(
+              find "$CLANG_ROOT" \
+                -type f \
+                -path '*/include/stddef.h' \
+                ! -path '*/include/c++/*' \
+                ! -path '*/include/c++/v1/*' \
+                | head -n 1
+            )"
 
-          CLANG_RESOURCE_DIR="${STDDEF_HEADER%/include/stddef.h}"
+            test -n "$BUILTIN_STDDEF"
+
+            CLANG_RESOURCE_DIR="${BUILTIN_STDDEF%/include/stddef.h}"
+          fi
+
+          test -d "$CLANG_RESOURCE_DIR"
+          test -f "$CLANG_RESOURCE_DIR/include/stddef.h"
 
           GCC_MACHINE="$(gcc -dumpmachine)"
           GCC_VERSION="$(gcc -dumpversion)"
@@ -922,6 +1005,11 @@ jobs:
           "$TOOL_DIR/clang" --version
 
           echo
+          echo "=== CLANG RESOURCE DIR ==="
+
+          echo "$CLANG_RESOURCE_DIR"
+
+          echo
           echo "=== LLD ==="
 
           "$TOOL_DIR/ld.lld" --version
@@ -940,7 +1028,6 @@ jobs:
           echo "HOSTCC=$HOSTCC"
           echo "HOSTCXX=$HOSTCXX"
           echo "HOSTLD=$HOSTLD"
-          echo "CLANG_RESOURCE_DIR=$CLANG_RESOURCE_DIR"
 
           echo
           echo "=== HOSTCFLAGS ==="
@@ -1143,6 +1230,13 @@ jobs:
 
           build/build-tools/path/linux-x86/clang \
             --version \
+            2>/dev/null || true
+
+          echo
+          echo "=== CLANG RESOURCE ==="
+
+          build/build-tools/path/linux-x86/clang \
+            -print-resource-dir \
             2>/dev/null || true
 
           echo
