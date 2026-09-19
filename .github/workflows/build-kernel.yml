@@ -8,6 +8,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+
       - name: Install Dependencies
         run: |
           set -eux
@@ -38,7 +39,9 @@ jobs:
             lz4 \
             zstd \
             cpio \
-            device-tree-compiler
+            device-tree-compiler \
+            perl \
+            python3-setuptools
 
       - name: Clone GTA9 Source
         run: |
@@ -61,44 +64,18 @@ jobs:
           git rev-parse HEAD
 
           echo "========================================"
-          echo "SOURCE ROOT"
+          echo "SOURCE VERSION"
           echo "========================================"
 
-          ls -lah
-
-          echo "========================================"
-          echo "VALIDATE SOURCE"
-          echo "========================================"
-
-          test -f Makefile
-          test -d arch
-          test -d drivers
-          test -d scripts
-          test -d setup
-          test -f build.config.common
-          test -f build.config.mtk.aarch64
-
-          echo "Source validation PASSED."
+          make kernelversion
 
       - name: Initialize KernelSU
         working-directory: gta9
         run: |
           set -eux
 
-          echo "========================================"
-          echo "GIT SUBMODULES"
-          echo "========================================"
-
-          cat .gitmodules || true
-
           git submodule sync --recursive
           git submodule update --init --depth=1
-
-          echo "========================================"
-          echo "KERNELSU"
-          echo "========================================"
-
-          ls -lah KernelSU
 
           echo "========================================"
           echo "KERNELSU COMMIT"
@@ -106,309 +83,306 @@ jobs:
 
           git -C KernelSU rev-parse HEAD
 
-          echo "KernelSU submodule initialized successfully."
+          test -d KernelSU/kernel
 
-      - name: Verify Kernel Source
+      - name: Prepare Source Layout
         working-directory: gta9
         run: |
           set -eux
 
           echo "========================================"
-          echo "KERNEL VERSION"
-          echo "========================================"
-
-          make kernelversion
-
-          echo "========================================"
-          echo "GTA9 DEFCONFIG FILES"
-          echo "========================================"
-
-          find arch/arm64/configs \
-            -maxdepth 1 \
-            -type f \
-            -iname '*gta9*' \
-            -print
-
-          echo "========================================"
-          echo "KSU CONFIG REFERENCES"
-          echo "========================================"
-
-          grep -Rni \
-            --exclude-dir=.git \
-            "CONFIG_KSU" \
-            arch/arm64/configs \
-            kernel/configs \
-            2>/dev/null | head -100 || true
-
-      - name: Inspect Build Infrastructure
-        working-directory: gta9
-        run: |
-          set -eux
-
-          echo "========================================"
-          echo "ALL BUILD.SH FILES"
-          echo "========================================"
-
-          find .. \
-            -type f \
-            -name "build.sh" \
-            -print
-
-          echo "========================================"
-          echo "ALL BUILD.CONFIG FILES"
-          echo "========================================"
-
-          find . \
-            -type f \
-            -name "build.config*" \
-            -print
-
-          echo "========================================"
-          echo "ALL BUILD-RELATED FILES"
-          echo "========================================"
-
-          find . \
-            -maxdepth 5 \
-            -type f \
-            \( \
-              -name "build.sh" \
-              -o -name "build.config*" \
-              -o -name "*build*" \
-            \) \
-            -print | head -500
-
-          echo "========================================"
-          echo "ROOT DIRECTORY"
+          echo "ORIGINAL SOURCE LAYOUT"
           echo "========================================"
 
           ls -lah
 
           echo "========================================"
-          echo "SETUP DIRECTORY"
+          echo "CREATE COMPATIBILITY LINKS"
           echo "========================================"
 
-          find setup \
-            -maxdepth 4 \
-            -type f \
-            -print
-
-          echo "========================================"
-          echo "BUILD DIRECTORY"
-          echo "========================================"
-
-          if [ -d build ]; then
-            ls -lah build
-            find build -maxdepth 3 -type f -print
-          else
-            echo "build/ DOES NOT EXIST"
+          # The vendor build scripts expect the kernel tree
+          # to exist as ./kernel-5.10.
+          if [ ! -e kernel-5.10 ]; then
+            ln -s . kernel-5.10
           fi
 
-      - name: Search Kernel 5.10 References
+          # The vendor build scripts expect ./kernel/build/build.sh.
+          # The actual Android build system is under setup/kernel/build.
+          if [ ! -e build ]; then
+            ln -s setup/kernel/build build
+          fi
+
+          echo "========================================"
+          echo "CHECK LINKS"
+          echo "========================================"
+
+          ls -ld kernel-5.10
+          ls -ld build
+
+          echo "========================================"
+          echo "BUILD SCRIPT"
+          echo "========================================"
+
+          test -f kernel-5.10/Makefile
+          test -f build/build.sh
+
+          ls -lh build/build.sh
+
+      - name: Download Android Clang r416183b
         working-directory: gta9
         run: |
           set -eux
 
           echo "========================================"
-          echo "KERNEL-5.10 REFERENCES"
+          echo "DOWNLOAD CLANG R416183B"
           echo "========================================"
 
-          grep -Rni \
-            --exclude-dir=.git \
-            "kernel-5.10" \
-            . 2>/dev/null | head -300 || true
+          mkdir -p prebuilts-master/clang/host/linux-x86
 
-      - name: Search Build Script References
+          cd prebuilts-master/clang/host/linux-x86
+
+          curl -L \
+            --fail \
+            --retry 3 \
+            --retry-delay 5 \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12L-gsi/clang-r416183b.tar.gz" \
+            -o clang-r416183b.tar.gz
+
+          mkdir -p clang-r416183b
+
+          tar \
+            -xzf clang-r416183b.tar.gz \
+            -C clang-r416183b
+
+          rm -f clang-r416183b.tar.gz
+
+          echo "========================================"
+          echo "CLANG CONTENT"
+          echo "========================================"
+
+          ls -lah clang-r416183b
+
+          test -x clang-r416183b/bin/clang
+          test -x clang-r416183b/bin/ld.lld
+
+          echo "========================================"
+          echo "CLANG VERSION"
+          echo "========================================"
+
+          clang-r416183b/bin/clang --version
+
+      - name: Convert MTK Config Generator To Python 3
         working-directory: gta9
         run: |
           set -eux
 
           echo "========================================"
-          echo "BUILD/BUILD.SH REFERENCES"
+          echo "CHECK PYTHON GENERATOR"
           echo "========================================"
 
-          grep -Rni \
-            --exclude-dir=.git \
-            "build/build.sh" \
-            . 2>/dev/null | head -300 || true
+          grep -n "print '" scripts/gen_build_config.py || true
 
           echo "========================================"
-          echo "GEN_BUILD_CONFIG REFERENCES"
+          echo "CONVERT PYTHON 2 -> PYTHON 3"
           echo "========================================"
 
-          grep -Rni \
-            --exclude-dir=.git \
-            "gen_build_config.py" \
-            . 2>/dev/null | head -300 || true
+          cp \
+            scripts/gen_build_config.py \
+            scripts/gen_build_config.py.orig
 
-      - name: Inspect Setup Build Script
+          2to3 \
+            -w \
+            scripts/gen_build_config.py
+
+          echo "========================================"
+          echo "PYTHON SYNTAX CHECK"
+          echo "========================================"
+
+          python3 -m py_compile scripts/gen_build_config.py
+
+      - name: Generate Build Config
+        working-directory: gta9
+        run: |
+          set -eux
+
+          mkdir -p out
+
+          cd kernel-5.10
+
+          echo "========================================"
+          echo "GENERATE BUILD CONFIG"
+          echo "========================================"
+
+          python3 scripts/gen_build_config.py \
+            --kernel-defconfig gta9_00_defconfig \
+            --kernel-defconfig-overlays \
+              "entry_level.config ot11.config ot11_data.config ot11_wifi.config" \
+            -m user \
+            -o ../out/build.config
+
+          echo "========================================"
+          echo "GENERATED BUILD CONFIG"
+          echo "========================================"
+
+          cat ../out/build.config
+
+      - name: Patch Generated Toolchain Path
         working-directory: gta9
         run: |
           set -eux
 
           echo "========================================"
-          echo "setup/build_kernel.sh"
+          echo "TOOLCHAIN PATH"
           echo "========================================"
 
-          if [ -f setup/build_kernel.sh ]; then
-            sed -n '1,400p' setup/build_kernel.sh
-          else
-            echo "setup/build_kernel.sh DOES NOT EXIST"
-          fi
+          grep -n \
+            "CLANG_PREBUILT_BIN\|KERNEL_DIR\|CROSS_COMPILE\|MAKE_GOALS" \
+            out/build.config \
+            || true
 
           echo "========================================"
-          echo "setup/build_kernel_2.sh"
+          echo "VERIFY CLANG"
           echo "========================================"
 
-          if [ -f setup/build_kernel_2.sh ]; then
-            sed -n '1,400p' setup/build_kernel_2.sh
-          else
-            echo "setup/build_kernel_2.sh DOES NOT EXIST"
-          fi
+          test -x \
+            prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/clang
 
-      - name: Inspect Build Config
+          test -x \
+            prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/ld.lld
+
+      - name: Build Kernel
         working-directory: gta9
         run: |
           set -eux
 
-          echo "========================================"
-          echo "build.config.mtk.aarch64"
-          echo "========================================"
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
 
-          if [ -f build.config.mtk.aarch64 ]; then
-            sed -n '1,400p' build.config.mtk.aarch64
-          else
-            echo "build.config.mtk.aarch64 DOES NOT EXIST"
-          fi
+          export OUT_DIR=../gta9/out
+          export DIST_DIR=../gta9/out
 
-          echo "========================================"
-          echo "build.config.common"
-          echo "========================================"
+          export BUILD_CONFIG=../gta9/out/build.config
 
-          if [ -f build.config.common ]; then
-            sed -n '1,400p' build.config.common
-          else
-            echo "build.config.common DOES NOT EXIST"
-          fi
-
-      - name: Inspect GTA9 Configurations
-        working-directory: gta9
-        run: |
-          set -eux
+          export CLANG_PREBUILT_BIN=prebuilts-master/clang/host/linux-x86/clang-r416183b/bin
 
           echo "========================================"
-          echo "GTA9 00 DEFCONFIG"
+          echo "BUILD ENVIRONMENT"
           echo "========================================"
 
-          if [ -f arch/arm64/configs/gta9_00_defconfig ]; then
-            sed -n '1,350p' arch/arm64/configs/gta9_00_defconfig
-          fi
+          echo "ARCH=$ARCH"
+          echo "CROSS_COMPILE=$CROSS_COMPILE"
+          echo "CROSS_COMPILE_COMPAT=$CROSS_COMPILE_COMPAT"
+          echo "BUILD_CONFIG=$BUILD_CONFIG"
+          echo "CLANG_PREBUILT_BIN=$CLANG_PREBUILT_BIN"
 
           echo "========================================"
-          echo "GTA9 DEFCONFIG"
+          echo "CLANG"
           echo "========================================"
 
-          if [ -f arch/arm64/configs/gta9_defconfig ]; then
-            sed -n '1,350p' arch/arm64/configs/gta9_defconfig
-          fi
+          "$CLANG_PREBUILT_BIN/clang" --version
 
           echo "========================================"
-          echo "OT11 CONFIG"
+          echo "BUILD.SH"
           echo "========================================"
 
-          if [ -f kernel/configs/ot11.config ]; then
-            sed -n '1,300p' kernel/configs/ot11.config
-          fi
-
-      - name: Inspect Device Tree
-        working-directory: gta9
-        run: |
-          set -eux
+          test -x build/build.sh
 
           echo "========================================"
-          echo "GTA9 DEVICE TREES"
+          echo "START KERNEL BUILD"
           echo "========================================"
 
-          find arch/arm64/boot/dts \
-            -type f \
-            \( \
-              -iname '*gta9*' \
-              -o -iname '*8781*' \
-              -o -iname '*6789*' \
-            \) \
-            -print
+          ./build/build.sh \
+            LLVM_IAS=1 \
+            -j"$(nproc)"
 
-          echo "========================================"
-          echo "EUR DTS"
-          echo "========================================"
-
-          DTS="arch/arm64/boot/dts/samsung/mt8781_gta9wifi_eur_open_00.dts"
-
-          if [ -f "$DTS" ]; then
-            sed -n '1,250p' "$DTS"
-          else
-            echo "$DTS DOES NOT EXIST"
-          fi
-
-      - name: Inspect Toolchain References
-        working-directory: gta9
-        run: |
-          set -eux
-
-          echo "========================================"
-          echo "SYSTEM TOOLS"
-          echo "========================================"
-
-          command -v clang || true
-          command -v clang++ || true
-          command -v ld.lld || true
-          command -v aarch64-linux-gnu-gcc || true
-          command -v arm-linux-gnueabi-gcc || true
-
-          echo "========================================"
-          echo "AVAILABLE CLANG"
-          echo "========================================"
-
-          clang --version || true
-
-          echo "========================================"
-          echo "TOOLCHAIN REFERENCES IN SOURCE"
-          echo "========================================"
-
-          grep -RniE \
-            --exclude-dir=.git \
-            "CLANG_PREBUILT_BIN|CLANG_VERSION|clang-r[0-9]+|proton-clang|CROSS_COMPILE|LLVM_IAS" \
-            . 2>/dev/null | head -300 || true
-
-      - name: Final Report
+      - name: Inspect Build Output
         if: always()
         working-directory: gta9
         run: |
           echo "========================================"
-          echo "GTA9 BUILD INFRASTRUCTURE REPORT"
+          echo "OUTPUT TREE"
           echo "========================================"
 
-          echo "Source:"
-          git rev-parse HEAD
+          find out \
+            -maxdepth 7 \
+            -type f \
+            \( \
+              -name "Image" \
+              -o -name "Image.gz" \
+              -o -name "vmlinux" \
+              -o -name "*.dtb" \
+              -o -name "*.dtbo" \
+              -o -name "*.ko" \
+            \) \
+            -print 2>/dev/null || true
 
-          echo
-          echo "Kernel version:"
-          make kernelversion || true
-
-          echo
-          echo "KernelSU:"
-          git -C KernelSU rev-parse HEAD 2>/dev/null || true
-
-          echo
-          echo "Directories:"
-          ls -ld \
-            arch \
-            drivers \
-            scripts \
-            setup \
-            KernelSU \
-            build 2>/dev/null || true
-
-          echo
           echo "========================================"
-          echo "NO KERNEL BUILD WAS STARTED"
+          echo "DIST TREE"
           echo "========================================"
+
+          find out \
+            -maxdepth 6 \
+            -type f \
+            -path "*/dist/*" \
+            -print 2>/dev/null || true
+
+      - name: Prepare GTA9 Artifacts
+        if: success()
+        working-directory: gta9
+        run: |
+          set -eux
+
+          echo "========================================"
+          echo "PREPARE ARTIFACTS"
+          echo "========================================"
+
+          mkdir -p artifact
+
+          # Kernel image
+          if [ -f out/kernel-5.10/arch/arm64/boot/Image.gz ]; then
+            cp \
+              out/kernel-5.10/arch/arm64/boot/Image.gz \
+              artifact/Image.gz
+          fi
+
+          # DTBs
+          if [ -d out/kernel-5.10/arch/arm64/boot/dts ]; then
+            find \
+              out/kernel-5.10/arch/arm64/boot/dts \
+              -type f \
+              -name "*.dtb" \
+              -exec cp {} artifact/ \;
+          fi
+
+          # DTBO
+          if [ -d out/kernel-5.10/arch/arm64/boot/dts ]; then
+            find \
+              out/kernel-5.10/arch/arm64/boot/dts \
+              -type f \
+              -name "*.dtbo" \
+              -exec cp {} artifact/ \;
+          fi
+
+          # All distribution files
+          if [ -d out/dist ]; then
+            cp -r out/dist artifact/dist
+          fi
+
+          echo "========================================"
+          echo "ARTIFACT CONTENT"
+          echo "========================================"
+
+          find artifact -type f -print
+
+      - name: Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta9-x110-kernel
+          path: |
+            gta9/artifact/**
+            gta9/out/build.config
+            gta9/out/build.config.mtk
+            gta9/out/build.config.gki.aarch64
+          if-no-files-found: warn
