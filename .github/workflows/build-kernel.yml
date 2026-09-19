@@ -290,6 +290,15 @@ jobs:
 
       # ============================================================
       # 11. PREPARE INTERNAL HOST COMMANDS
+      #
+      # IMPORTANT:
+      # Use "type -P", NOT "command -v".
+      #
+      # command -v echo -> shell builtin "echo"
+      # type -P echo    -> actual /usr/bin/echo
+      #
+      # This prevents self-referencing symlink:
+      # echo -> echo
       # ============================================================
       - name: Prepare internal host tools
         working-directory: gta9
@@ -349,15 +358,39 @@ jobs:
             git \
             python3
           do
-            if command -v "$cmd" >/dev/null 2>&1; then
-              target="$(command -v "$cmd")"
+            target="$(type -P "$cmd" || true)"
 
+            if [ -n "$target" ] && [ -x "$target" ]; then
               rm -f "$TOOL_DIR/$cmd"
+
               ln -s "$target" "$TOOL_DIR/$cmd"
 
               echo "$cmd -> $target"
+            else
+              echo "SKIP: $cmd"
             fi
           done
+
+          echo
+          echo "=== CHECK CRITICAL HOST TOOLS ==="
+
+          for cmd in \
+            echo \
+            pwd \
+            expr \
+            xargs \
+            make \
+            uname \
+            nproc
+          do
+            test -x "$TOOL_DIR/$cmd"
+            echo "OK: $cmd -> $(readlink -f "$TOOL_DIR/$cmd")"
+          done
+
+          echo
+          echo "=== CHECK ECHO ==="
+
+          "$TOOL_DIR/echo" "internal echo works"
 
       # ============================================================
       # 12. INSTALL DIRECT LLVM EXECUTABLES
@@ -549,7 +582,7 @@ jobs:
           DIST_DIR: out
 
           # IMPORTANT:
-          # build.sh expects BUILD_CONFIG relative to ROOT_DIR.
+          # Relative path because build.sh prefixes ROOT_DIR.
           BUILD_CONFIG: out/build.config
 
           HOSTCC: build/build-tools/path/linux-x86/clang
