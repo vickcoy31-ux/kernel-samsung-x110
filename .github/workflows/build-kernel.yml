@@ -89,18 +89,21 @@ jobs:
         run: |
           set -eux
 
-          # The upstream source already IS the kernel tree.
-          # Build scripts expect:
+          # The upstream repository itself is the kernel tree.
+          #
+          # The supplied build infrastructure expects:
           #
           #   kernel-5.10 -> kernel source root
           #   build       -> setup/kernel/build
-          #
+
           ln -s . kernel-5.10
           ln -s setup/kernel/build build
 
-          echo "===== SYMLINKS ====="
-          ls -la kernel-5.10
-          ls -la build
+          echo "===== KERNEL LINK ====="
+          ls -ld kernel-5.10
+
+          echo "===== BUILD LINK ====="
+          ls -ld build
 
           echo "===== BUILD SCRIPT ====="
           test -f build/build.sh
@@ -114,7 +117,8 @@ jobs:
         run: |
           set -eux
 
-          mkdir -p prebuilts-master/clang/host/linux-x86/clang-r416183b
+          mkdir -p \
+            prebuilts-master/clang/host/linux-x86/clang-r416183b
 
           wget -q --show-progress \
             https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12L-gsi/clang-r416183b.tar.gz \
@@ -124,7 +128,7 @@ jobs:
             /tmp/clang-r416183b.tar.gz \
             -C prebuilts-master/clang/host/linux-x86/clang-r416183b
 
-          echo "===== CLANG ====="
+          echo "===== CLANG CHECK ====="
 
           test -x \
             prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/clang
@@ -133,22 +137,23 @@ jobs:
             --version
 
       # ============================================================
-      # 6. CONVERT PYTHON2 BUILD CONFIG GENERATOR TO PYTHON3
+      # 6. CONVERT PYTHON2 GENERATOR TO PYTHON3
       # ============================================================
       - name: Convert Build Config Generator
         working-directory: gta9
         run: |
           set -eux
 
-          echo "===== ORIGINAL GENERATOR ====="
+          echo "===== GENERATOR BEFORE CONVERSION ====="
           head -40 scripts/gen_build_config.py
 
           python3 -m lib2to3 -w scripts/gen_build_config.py
 
-          echo "===== CONVERTED GENERATOR ====="
+          echo "===== GENERATOR AFTER CONVERSION ====="
           head -40 scripts/gen_build_config.py
 
-          python3 -m py_compile scripts/gen_build_config.py
+          python3 -m py_compile \
+            scripts/gen_build_config.py
 
       # ============================================================
       # 7. GENERATE BUILD CONFIG
@@ -160,13 +165,13 @@ jobs:
 
           mkdir -p out
 
-          # kernel-5.10 is a symlink to the source root.
-          # Therefore the generator must write to:
+          # kernel-5.10 is a symlink to the repository root.
+          # Therefore the generated config must be written to:
           #
-          #   out/build.config
+          #   gta9/out/build.config
           #
-          # NOT ../out/build.config.
-          #
+          # and NOT ../out/build.config.
+
           cd kernel-5.10
 
           python3 scripts/gen_build_config.py \
@@ -194,12 +199,13 @@ jobs:
 
           test -f out/build.config
 
+          CLANG_PATH="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
+
           echo "===== BUILD CONFIG BEFORE PATCH ====="
+
           grep -n \
             "KERNEL_DIR\|KERNEL_DEFCONFIG_FILE\|BUILD_CONFIG_FRAGMENTS\|CLANG_PREBUILT_BIN" \
             out/build.config || true
-
-          CLANG_PATH="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
           if grep -q "^CLANG_PREBUILT_BIN=" out/build.config; then
 
@@ -215,6 +221,7 @@ jobs:
           fi
 
           echo "===== FINAL BUILD CONFIG ====="
+
           cat out/build.config
 
       # ============================================================
@@ -229,34 +236,46 @@ jobs:
           pwd
 
           echo "===== BUILD CONFIG ====="
+
           test -f out/build.config
+
           ls -lh out/build.config
 
           echo "===== BUILD SCRIPT ====="
+
           test -f build/build.sh
+
           ls -lh build/build.sh
 
           echo "===== KERNEL TREE ====="
+
           test -f Makefile
           test -d arch
           test -d drivers
           test -d scripts
 
           echo "===== DEFCONFIG ====="
-          test -f arch/arm64/configs/gta9_00_defconfig
+
+          test -f \
+            arch/arm64/configs/gta9_00_defconfig
 
           echo "===== DEVICE TREE ====="
-          test -f arch/arm64/boot/dts/samsung/mt8781_gta9wifi_eur_open_00.dts
+
+          test -f \
+            arch/arm64/boot/dts/samsung/mt8781_gta9wifi_eur_open_00.dts
 
           echo "===== KERNELSU ====="
+
           test -d KernelSU
           test -f KernelSU/kernel/Kconfig
 
           echo "===== CLANG ====="
+
           prebuilts-master/clang/host/linux-x86/clang-r416183b/bin/clang \
             --version
 
           echo "===== CROSS COMPILER ====="
+
           aarch64-linux-gnu-gcc --version | head -1
 
       # ============================================================
@@ -268,13 +287,16 @@ jobs:
           set -eux
 
           export ARCH=arm64
+
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
 
           export OUT_DIR="${GITHUB_WORKSPACE}/gta9/out"
           export DIST_DIR="${GITHUB_WORKSPACE}/gta9/out"
 
-          # build/build.sh expects BUILD_CONFIG relative to ROOT_DIR.
+          # IMPORTANT:
+          # build/build.sh expects BUILD_CONFIG relative
+          # to the kernel repository ROOT_DIR.
           export BUILD_CONFIG="out/build.config"
 
           export CLANG_PREBUILT_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
@@ -286,29 +308,75 @@ jobs:
           echo "PREPARING BUILD COMMAND PATH"
           echo "========================================"
 
-          # The upstream build.sh replaces PATH with its own
-          # build-tools/clang/host_tools PATH.
-          #
-          # Some standard Ubuntu commands used internally by
-          # build.sh are therefore no longer visible.
-          #
-          # Put wrappers for the required host commands inside
-          # the build-tools PATH.
-
           BUILD_TOOLS_DIR="${GITHUB_WORKSPACE}/gta9/build/build-tools/path/linux-x86"
 
           mkdir -p "${BUILD_TOOLS_DIR}"
 
-          ln -sf /usr/bin/nproc "${BUILD_TOOLS_DIR}/nproc"
-          ln -sf /usr/bin/readlink "${BUILD_TOOLS_DIR}/readlink"
-          ln -sf /usr/bin/rm "${BUILD_TOOLS_DIR}/rm"
+          # --------------------------------------------------------
+          # build.sh replaces PATH with its own Android build PATH.
+          #
+          # Make standard Ubuntu host commands available inside
+          # that PATH.
+          # --------------------------------------------------------
+
+          for cmd in \
+            nproc \
+            readlink \
+            rm \
+            mkdir \
+            cp \
+            mv \
+            ln \
+            cat \
+            chmod \
+            dirname \
+            basename \
+            grep \
+            sed \
+            awk \
+            find \
+            sort \
+            cut \
+            tr \
+            head \
+            tail \
+            touch \
+            stat \
+            printf \
+            pwd \
+            realpath \
+            which \
+            env \
+            tee \
+            xargs \
+            expr \
+            date \
+            sleep
+          do
+
+            if [ -x "/usr/bin/${cmd}" ]; then
+
+              ln -sf \
+                "/usr/bin/${cmd}" \
+                "${BUILD_TOOLS_DIR}/${cmd}"
+
+            elif [ -x "/bin/${cmd}" ]; then
+
+              ln -sf \
+                "/bin/${cmd}" \
+                "${BUILD_TOOLS_DIR}/${cmd}"
+
+            else
+
+              echo "WARNING: /usr/bin/${cmd} and /bin/${cmd} not found"
+
+            fi
+
+          done
 
           echo "===== BUILD COMMANDS ====="
 
-          ls -l \
-            "${BUILD_TOOLS_DIR}/nproc" \
-            "${BUILD_TOOLS_DIR}/readlink" \
-            "${BUILD_TOOLS_DIR}/rm"
+          ls -la "${BUILD_TOOLS_DIR}"
 
           echo "========================================"
           echo "STARTING KERNEL BUILD"
@@ -350,7 +418,9 @@ jobs:
           echo "OUT DIRECTORY"
           echo "========================================"
 
-          find out -maxdepth 5 -type f \
+          find out \
+            -maxdepth 6 \
+            -type f \
             -printf '%p %k KB\n' \
             2>/dev/null | sort || true
 
@@ -381,7 +451,7 @@ jobs:
             2>/dev/null | sort || true
 
       # ============================================================
-      # 12. PREPARE ARTIFACTS
+      # 12. PREPARE RELEASE ARTIFACTS
       # ============================================================
       - name: Prepare Artifacts
         if: success()
@@ -391,7 +461,7 @@ jobs:
 
           mkdir -p release
 
-          echo "===== SEARCHING FOR KERNEL OUTPUT ====="
+          echo "===== SEARCHING KERNEL OUTPUT ====="
 
           find out \
             -type f \
@@ -404,38 +474,56 @@ jobs:
             \) \
             -print
 
-          # Copy kernel image if available.
+          # --------------------------------------------------------
+          # Kernel Image
+          # --------------------------------------------------------
+
           if [ -f out/kernel-5.10/arch/arm64/boot/Image.gz ]; then
+
             cp \
               out/kernel-5.10/arch/arm64/boot/Image.gz \
               release/Image.gz
+
           elif [ -f out/kernel-5.10/arch/arm64/boot/Image ]; then
+
             cp \
               out/kernel-5.10/arch/arm64/boot/Image \
               release/Image
+
           fi
 
-          # Copy DTB.
+          # --------------------------------------------------------
+          # DTB
+          # --------------------------------------------------------
+
           if [ -f out/kernel-5.10/arch/arm64/boot/dts/mediatek/mt6789.dtb ]; then
+
             cp \
               out/kernel-5.10/arch/arm64/boot/dts/mediatek/mt6789.dtb \
               release/mt6789.dtb
+
           fi
 
-          # Copy Galaxy Tab A9 EUR DTBO.
+          # --------------------------------------------------------
+          # Galaxy Tab A9 EUR DTBO
+          # --------------------------------------------------------
+
           if [ -f out/kernel-5.10/arch/arm64/boot/dts/mediatek/mt8781_gta9_eur_open_00.dtbo ]; then
+
             cp \
               out/kernel-5.10/arch/arm64/boot/dts/mediatek/mt8781_gta9_eur_open_00.dtbo \
               release/mt8781_gta9_eur_open_00.dtbo
+
           fi
 
           echo "===== RELEASE FILES ====="
+
           ls -lah release
 
           test "$(find release -type f | wc -l)" -gt 0
 
       # ============================================================
-      # 13. UPLOAD BUILD ARTIFACTS
+      # 13. UPLOAD KERNEL ARTIFACTS
       # ============================================================
       - name: Upload Kernel Artifacts
         if: success()
@@ -447,7 +535,7 @@ jobs:
           retention-days: 7
 
       # ============================================================
-      # 14. UPLOAD FULL BUILD LOG / OUTPUT
+      # 14. UPLOAD FULL BUILD OUTPUT
       # ============================================================
       - name: Upload Build Output
         if: always()
