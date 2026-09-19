@@ -42,8 +42,8 @@ jobs:
           mkdir -p gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
           tar -xzf gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}.tar.gz -C gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
 
-      # 4. SAMSUNG BUILD SYSTEM LAYOUT & WRAPPER TRICK
-      - name: Configure Samsung Build Layout and Wrapper
+      # 4. SAMSUNG BUILD SYSTEM LAYOUT & DOUBLE WRAPPER
+      - name: Configure Samsung Build Layout and Wrappers
         run: |
           cd gta9
           ln -sf . kernel-5.10
@@ -53,8 +53,7 @@ jobs:
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
           mkdir -p "$TOOL_DIR"
 
-          # --- WRAPPER TRICK: Membuat script pengganti clang ---
-          # Script ini akan menyisipkan folder header Ubuntu secara otomatis
+          # --- WRAPPER 1: Clang (Fix Header/sys/types.h) ---
           cat <<EOF > "$TOOL_DIR/clang"
           #!/bin/bash
           exec "$CLANG_ROOT/bin/clang-12" -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include "\$@"
@@ -66,10 +65,16 @@ jobs:
           exec "$CLANG_ROOT/bin/clang++" -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include "\$@"
           EOF
           chmod +x "$TOOL_DIR/clang++"
+
+          # --- WRAPPER 2: LLD (Fix CRT/crt1.o/libc) ---
+          cat <<EOF > "$TOOL_DIR/ld.lld"
+          #!/bin/bash
+          exec "$CLANG_ROOT/bin/ld.lld" -L/usr/lib/x86_64-linux-gnu -L/usr/lib "\$@"
+          EOF
+          chmod +x "$TOOL_DIR/ld.lld"
           # -----------------------------------------------------
 
-          cp -f "$CLANG_ROOT/bin/ld.lld" "$TOOL_DIR/lld" 2>/dev/null || cp -f "$CLANG_ROOT/bin/lld" "$TOOL_DIR/lld"
-          ln -sf lld "$TOOL_DIR/ld.lld"
+          ln -sf "$TOOL_DIR/ld.lld" "$TOOL_DIR/lld"
           ln -sf /usr/bin/realpath "$TOOL_DIR/realpath"
 
           COMMANDS="echo printf sleep ar as awk basename bash cat chmod cmp cp cut date dirname du env expr find grep head ld ln mkdir mktemp mv nproc objcopy objdump od printf pwd readlink rm sed sort stat tail tar test touch tr uname uniq wc which xargs zip make gcc g++ aarch64-linux-gnu-gcc aarch64-linux-gnu-g++ arm-linux-gnueabi-gcc arm-linux-gnueabi-g++"
@@ -105,6 +110,8 @@ jobs:
           
           sed -i "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=$CLANG_ROOT/bin#" out/build.config
 
+          echo "C_INCLUDE_PATH=/usr/include/x86_64-linux-gnu:/usr/include" >> $GITHUB_ENV
+          echo "CPLUS_INCLUDE_PATH=/usr/include/x86_64-linux-gnu:/usr/include" >> $GITHUB_ENV
           echo "PATH=$PWD/build/build-tools/path/linux-x86:\$PATH" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=$CLANG_ROOT/compat-libs:\$LD_LIBRARY_PATH" >> $GITHUB_ENV
           echo "HOSTCFLAGS=--gcc-toolchain=/usr -resource-dir=$CLANG_RES -isystem /usr/lib/gcc/$GCC_MACH/$GCC_VER/include -isystem /usr/lib/gcc/$GCC_MACH/$GCC_VER/include-fixed -isystem /usr/include/$GCC_MACH -isystem /usr/include" >> $GITHUB_ENV
@@ -122,7 +129,6 @@ jobs:
           OUT_DIR: out
           DIST_DIR: out
           BUILD_CONFIG: out/build.config
-          # Pakai wrapper clang kita
           HOSTCC: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang
           HOSTCXX: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang++
           HOSTLD: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/ld.lld
