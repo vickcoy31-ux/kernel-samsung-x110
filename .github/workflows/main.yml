@@ -12,16 +12,17 @@ jobs:
       CLANG_URL: "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12L-gsi/clang-r416183b.tar.gz"
 
     steps:
-      # 1. INSTALL DEPENDENCIES
+      # 1. INSTALL DEPENDENCIES (Adding Native Clang & LLD)
       - name: Install Host Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ca-certificates ccache clang curl flex gcc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev libssl-dev libxml2 libxml2-dev lld make python3 python3-distutils rsync unzip wget xz-utils zip coreutils linux-libc-dev
+          # Kita instal clang, lld, dan compiler-rt versi Ubuntu untuk handle Host Tools
+          sudo apt-get install -y bc bison build-essential ca-certificates ccache clang lld compiler-rt curl flex gcc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev libssl-dev libxml2 libxml2-dev make python3 python3-distutils rsync unzip wget xz-utils zip coreutils linux-libc-dev
 
       # 2. CLONE SOURCE & KERNELSU
       - name: Clone Source & Submodules
         run: |
-          git clone --depth=1 --branch 15.0 https://github.com/prabhatkrmishra/kernel_samsung_gta9.git gta9
+          git clone --depth=1 --branch,15.0 https://github.com/prabhatkrmishra/kernel_samsung_gta9.git gta9
           cd gta9
           git submodule sync --recursive
           git submodule update --init --depth=1
@@ -42,39 +43,22 @@ jobs:
           mkdir -p gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
           tar -xzf gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}.tar.gz -C gta9/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}
 
-      # 4. SAMSUNG BUILD SYSTEM LAYOUT & DOUBLE WRAPPER
-      - name: Configure Samsung Build Layout and Wrappers
+      # 4. SAMSUNG BUILD SYSTEM LAYOUT (Using Native Tools for Host)
+      - name: Configure Samsung Build Layout
         run: |
           cd gta9
           ln -sf . kernel-5.10
           ln -sf setup/kernel/build build
           
-          CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}"
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
           mkdir -p "$TOOL_DIR"
 
-          # --- WRAPPER 1: Clang (Fix Header/sys/types.h) ---
-          cat <<EOF > "$TOOL_DIR/clang"
-          #!/bin/bash
-          exec "$CLANG_ROOT/bin/clang-12" -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include "\$@"
-          EOF
-          chmod +x "$TOOL_DIR/clang"
-
-          cat <<EOF > "$TOOL_DIR/clang++"
-          #!/bin/bash
-          exec "$CLANG_ROOT/bin/clang++" -isystem /usr/include/x86_64-linux-gnu -isystem /usr/include "\$@"
-          EOF
-          chmod +x "$TOOL_DIR/clang++"
-
-          # --- WRAPPER 2: LLD (Fix CRT/crt1.o/libc) ---
-          cat <<EOF > "$TOOL_DIR/ld.lld"
-          #!/bin/bash
-          exec "$CLANG_ROOT/bin/ld.lld" -L/usr/lib/x86_64-linux-gnu -L/usr/lib "\$@"
-          EOF
-          chmod +x "$TOOL_DIR/ld.lld"
-          # -----------------------------------------------------
-
-          ln -sf "$TOOL_DIR/ld.lld" "$TOOL_DIR/lld"
+          # KUNCI PERBAIKAN: Gunakan Native Ubuntu Clang/LLD untuk folder build-tools
+          # Ini agar fixdep dan host-tools lainnya tidak error crt1.o
+          ln -sf /usr/bin/clang "$TOOL_DIR/clang"
+          ln -sf /usr/bin/clang++ "$TOOL_DIR/clang++"
+          ln -sf /usr/bin/ld.lld "$TOOL_DIR/ld.lld"
+          ln -sf /usr/bin/ld.lld "$TOOL_DIR/lld"
           ln -sf /usr/bin/realpath "$TOOL_DIR/realpath"
 
           COMMANDS="echo printf sleep ar as awk basename bash cat chmod cmp cp cut date dirname du env expr find grep head ld ln mkdir mktemp mv nproc objcopy objdump od printf pwd readlink rm sed sort stat tail tar test touch tr uname uniq wc which xargs zip make gcc g++ aarch64-linux-gnu-gcc aarch64-linux-gnu-g++ arm-linux-gnueabi-gcc arm-linux-gnueabi-g++"
@@ -83,6 +67,7 @@ jobs:
             [ -n "$target" ] && ln -sf "$target" "$TOOL_DIR/$cmd"
           done
 
+          CLANG_ROOT="$PWD/prebuilts-master/clang/host/linux-x86/${{ env.CLANG_VERSION }}"
           COMPAT_DIR="$CLANG_ROOT/compat-libs"
           mkdir -p "$COMPAT_DIR"
           SYSTEM_LIBXML="$(ldconfig -p | grep 'libxml2.so.2 ' | head -n 1 | sed 's/.*=> //')"
@@ -108,10 +93,9 @@ jobs:
           GCC_MACH="$(gcc -dumpmachine)"
           GCC_VER="$(gcc -dumpversion)"
           
+          # Di sini kita tetap arahkan ke Android Clang untuk build kernel utama
           sed -i "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=$CLANG_ROOT/bin#" out/build.config
 
-          echo "C_INCLUDE_PATH=/usr/include/x86_64-linux-gnu:/usr/include" >> $GITHUB_ENV
-          echo "CPLUS_INCLUDE_PATH=/usr/include/x86_64-linux-gnu:/usr/include" >> $GITHUB_ENV
           echo "PATH=$PWD/build/build-tools/path/linux-x86:\$PATH" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=$CLANG_ROOT/compat-libs:\$LD_LIBRARY_PATH" >> $GITHUB_ENV
           echo "HOSTCFLAGS=--gcc-toolchain=/usr -resource-dir=$CLANG_RES -isystem /usr/lib/gcc/$GCC_MACH/$GCC_VER/include -isystem /usr/lib/gcc/$GCC_MACH/$GCC_VER/include-fixed -isystem /usr/include/$GCC_MACH -isystem /usr/include" >> $GITHUB_ENV
@@ -129,9 +113,9 @@ jobs:
           OUT_DIR: out
           DIST_DIR: out
           BUILD_CONFIG: out/build.config
-          HOSTCC: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang
-          HOSTCXX: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/clang++
-          HOSTLD: ${{ github.workspace }}/gta9/build/build-tools/path/linux-x86/ld.lld
+          HOSTCC: /usr/bin/gcc
+          HOSTCXX: /usr/bin/g++
+          HOSTLD: /usr/bin/gcc
           KCFLAGS: "-Wno-error"
         run: |
           set -eux
