@@ -129,14 +129,10 @@ jobs:
           git -C KernelSU rev-parse HEAD
 
           echo
-          echo "=== KERNELSU FILES ==="
-
-          ls -la KernelSU | head -50
-
-          echo
           echo "=== KERNELSU CONFIG ==="
 
-          grep -R "CONFIG_KSU" \
+          grep -R \
+            "CONFIG_KSU" \
             kernel/configs \
             arch/arm64/configs \
             2>/dev/null || true
@@ -150,13 +146,6 @@ jobs:
           set -eux
 
           cd gta9
-
-          # The original Android build infrastructure expects:
-          #
-          #   kernel-5.10/
-          #   build/
-          #
-          # but this repository itself is already the kernel tree.
 
           if [ ! -e kernel-5.10 ]; then
             ln -s . kernel-5.10
@@ -175,10 +164,9 @@ jobs:
           echo
           echo "=== BUILD SCRIPT ==="
 
-          test -x setup/kernel/build/build.sh || \
-            chmod +x setup/kernel/build/build.sh
-
           test -f setup/kernel/build/build.sh
+
+          chmod +x setup/kernel/build/build.sh
 
           echo
           echo "=== GENERATOR ==="
@@ -220,7 +208,7 @@ jobs:
           echo "$CLANG_ROOT"
 
           echo
-          echo "=== CLANG BINARIES ==="
+          echo "=== CLANG BINARY ==="
 
           ls -lh \
             "$CLANG_ROOT/bin/clang-12"
@@ -234,17 +222,7 @@ jobs:
 
 
       # ============================================================
-      # 6. FIND REAL CLANG RESOURCE DIRECTORY
-      #
-      # IMPORTANT:
-      # Do NOT assume:
-      #
-      #   lib/clang/12.0.5
-      #
-      # The Android archive can have a different layout.
-      #
-      # We locate the actual stddef.h and derive the resource dir
-      # from that.
+      # 6. DETECT REAL CLANG RESOURCE DIRECTORY
       # ============================================================
       - name: Detect Clang resource directory
         run: |
@@ -259,11 +237,13 @@ jobs:
           echo "$CLANG_ROOT"
 
           echo
-          echo "=== CLANG PRINT RESOURCE DIR ==="
+          echo "=== CLANG REPORTED RESOURCE DIR ==="
 
-          PRINTED_RESOURCE_DIR="$("$CLANG_BIN/clang-12" -print-resource-dir || true)"
+          PRINTED_RESOURCE_DIR="$(
+            "$CLANG_BIN/clang-12" \
+              -print-resource-dir
+          )"
 
-          echo "clang reported:"
           echo "$PRINTED_RESOURCE_DIR"
 
           echo
@@ -299,22 +279,21 @@ jobs:
           echo "$CLANG_RESOURCE_DIR"
 
           echo
-          echo "=== RESOURCE DIRECTORY CONTENTS ==="
+          echo "=== REQUIRED HEADERS ==="
 
-          ls -la "$CLANG_RESOURCE_DIR" | head -50
+          test -f \
+            "$CLANG_RESOURCE_DIR/include/stddef.h"
+
+          test -f \
+            "$CLANG_RESOURCE_DIR/include/stdint.h"
 
           echo
           echo "=== RESOURCE INCLUDE ==="
 
-          ls -la "$CLANG_RESOURCE_DIR/include" | head -50
+          ls -la \
+            "$CLANG_RESOURCE_DIR/include" \
+            | head -50
 
-          echo
-          echo "=== REQUIRED HEADERS ==="
-
-          test -f "$CLANG_RESOURCE_DIR/include/stddef.h"
-          test -f "$CLANG_RESOURCE_DIR/include/stdint.h"
-
-          # Save for all later workflow steps.
           echo "CLANG_ROOT=$CLANG_ROOT" >> "$GITHUB_ENV"
           echo "CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
           echo "CLANG_RESOURCE_DIR=$CLANG_RESOURCE_DIR" >> "$GITHUB_ENV"
@@ -338,9 +317,6 @@ jobs:
 
           echo
           echo "=== INSTALL DIRECT CLANG ==="
-
-          # Avoid Android compiler_wrapper recursion.
-          # clang-12 is the actual compiler binary.
 
           rm -f "$TOOL_DIR/clang"
           rm -f "$TOOL_DIR/clang++"
@@ -369,7 +345,8 @@ jobs:
             "$CLANG_BIN/lld" \
             "$TOOL_DIR/lld"
 
-          chmod +x "$TOOL_DIR/lld"
+          chmod +x \
+            "$TOOL_DIR/lld"
 
           ln -s \
             lld \
@@ -386,7 +363,7 @@ jobs:
 
 
       # ============================================================
-      # 8. LLD LIBXML COMPATIBILITY
+      # 8. LLD COMPATIBILITY LIBRARY
       # ============================================================
       - name: Prepare LLD compatibility libraries
         run: |
@@ -394,9 +371,22 @@ jobs:
 
           cd gta9
 
+          # IMPORTANT:
+          # Every GitHub Actions run step has its own shell.
+          # Therefore TOOL_DIR is defined again here.
+
+          TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
           COMPAT_DIR="$CLANG_ROOT/compat-libs"
 
+          mkdir -p "$TOOL_DIR"
           mkdir -p "$COMPAT_DIR"
+
+          echo "=== TOOL DIR ==="
+          echo "$TOOL_DIR"
+
+          echo
+          echo "=== COMPAT DIR ==="
+          echo "$COMPAT_DIR"
 
           SYSTEM_LIBXML="$(
             ldconfig -p \
@@ -408,6 +398,7 @@ jobs:
           test -n "$SYSTEM_LIBXML"
           test -f "$SYSTEM_LIBXML"
 
+          echo
           echo "=== SYSTEM LIBXML ==="
           echo "$SYSTEM_LIBXML"
 
@@ -418,7 +409,15 @@ jobs:
           echo
           echo "=== COMPAT LIB ==="
 
-          ls -l "$COMPAT_DIR/libxml2.so.2.9.10"
+          ls -l \
+            "$COMPAT_DIR/libxml2.so.2.9.10"
+
+          echo
+          echo "=== LLD BINARY ==="
+
+          test -x "$TOOL_DIR/lld"
+
+          ls -lh "$TOOL_DIR/lld"
 
           echo
           echo "=== TEST LLD ==="
@@ -429,7 +428,7 @@ jobs:
 
 
       # ============================================================
-      # 9. PREPARE HOST COMMAND PATH
+      # 9. PREPARE ANDROID BUILD HOST PATH
       # ============================================================
       - name: Prepare Android build host command path
         run: |
@@ -440,14 +439,6 @@ jobs:
           TOOL_DIR="$PWD/build/build-tools/path/linux-x86"
 
           mkdir -p "$TOOL_DIR"
-
-          # The Android build system replaces PATH with this directory.
-          #
-          # Make sure normal Ubuntu host utilities are available there.
-          #
-          # IMPORTANT:
-          # type -P is used instead of command -v because command -v
-          # can return shell builtins such as echo/pwd.
 
           HOST_COMMANDS="
             ar
@@ -523,7 +514,6 @@ jobs:
             pwd \
             expr \
             xargs \
-            make \
             uname \
             nproc \
             rm \
@@ -537,7 +527,7 @@ jobs:
 
 
       # ============================================================
-      # 10. ADD MAKE + OTHER BUILD TOOLS
+      # 10. PREPARE MAKE / BINUTILS
       # ============================================================
       - name: Prepare kernel build tools
         run: |
@@ -575,7 +565,7 @@ jobs:
 
 
       # ============================================================
-      # 11. CONVERT PYTHON2 BUILD GENERATOR
+      # 11. CONVERT PYTHON2 GENERATOR
       # ============================================================
       - name: Prepare build config generator
         run: |
@@ -590,7 +580,8 @@ jobs:
           python3 -m py_compile \
             scripts/gen_build_config.py
 
-          echo "Python build generator is ready."
+          echo
+          echo "=== GENERATOR READY ==="
 
 
       # ============================================================
@@ -619,13 +610,13 @@ jobs:
           echo
           echo "=== GENERATED BUILD CONFIG ==="
 
-          sed -n '1,220p' out/build.config
+          sed -n '1,240p' out/build.config
 
 
       # ============================================================
       # 13. PATCH GENERATED CLANG PATH
       # ============================================================
-      - name: Configure Android Clang in build config
+      - name: Configure Android Clang
         run: |
           set -eux
 
@@ -633,15 +624,13 @@ jobs:
 
           test -f out/build.config
 
-          # Force the generated config to use our downloaded Android
-          # Clang instead of any missing source-tree prebuilts.
-
           sed -i \
             "s|^CLANG_PREBUILT_BIN=.*|CLANG_PREBUILT_BIN=$CLANG_BIN|" \
             out/build.config
 
           if ! grep -q '^CLANG_PREBUILT_BIN=' out/build.config; then
-            echo "CLANG_PREBUILT_BIN=$CLANG_BIN" >> out/build.config
+            echo "CLANG_PREBUILT_BIN=$CLANG_BIN" \
+              >> out/build.config
           fi
 
           echo
@@ -692,7 +681,8 @@ jobs:
           echo
           echo "=== STDDEF.H ==="
 
-          test -f "$CLANG_RESOURCE_DIR/include/stddef.h"
+          test -f \
+            "$CLANG_RESOURCE_DIR/include/stddef.h"
 
           ls -l \
             "$CLANG_RESOURCE_DIR/include/stddef.h"
@@ -727,7 +717,7 @@ jobs:
 
 
       # ============================================================
-      # 15. VERIFY HOST COMPILER / HEADERS
+      # 15. VERIFY HOST TOOLCHAIN
       # ============================================================
       - name: Verify host toolchain
         run: |
@@ -762,7 +752,8 @@ jobs:
             /tmp/gcc-host-test.c \
             -o /tmp/gcc-host-test.o
 
-          test -f /tmp/gcc-host-test.o
+          test -f \
+            /tmp/gcc-host-test.o
 
           echo
           echo "=== MAKE TEST ==="
@@ -781,7 +772,7 @@ jobs:
 
 
       # ============================================================
-      # 16. VERIFY KERNELSU + CONFIG
+      # 16. VERIFY KERNELSU
       # ============================================================
       - name: Verify KernelSU and kernel configuration
         run: |
@@ -796,6 +787,7 @@ jobs:
 
           echo
           echo "KernelSU commit:"
+
           git -C KernelSU rev-parse HEAD
 
           echo
@@ -808,7 +800,7 @@ jobs:
             2>/dev/null
 
           echo
-          echo "=== GTA9 DEFCONFIG ==="
+          echo "=== DEFCONFIG ==="
 
           test -f \
             arch/arm64/configs/gta9_00_defconfig
@@ -820,9 +812,8 @@ jobs:
             arch/arm64/boot/dts/samsung/mt8781_gta9wifi_eur_open_00.dts
 
           echo
-          echo "=== REQUIRED CONFIG FRAGMENTS ==="
+          echo "=== OT11 CONFIGS ==="
 
-          test -f kernel/configs/entry_level.config 2>/dev/null || true
           test -f kernel/configs/ot11.config
           test -f kernel/configs/ot11_wifi.config
           test -f kernel/configs/ot11_data.config
@@ -900,7 +891,7 @@ jobs:
           "$HOSTLD" --version
 
           echo
-          echo "=== BUILD CONFIG ENV ==="
+          echo "=== BUILD ENV ==="
 
           echo "ARCH=$ARCH"
           echo "CROSS_COMPILE=$CROSS_COMPILE"
@@ -973,7 +964,7 @@ jobs:
           ls -lah "$BOOT_DIR"
 
           echo
-          echo "=== COPY IMAGE.GZ ==="
+          echo "=== IMAGE.GZ ==="
 
           test -f "$BOOT_DIR/Image.gz"
 
@@ -982,9 +973,14 @@ jobs:
             release/Image.gz
 
           echo
-          echo "=== COPY MT6789 DTB ==="
+          echo "=== MT6789 DTB ==="
 
-          DTB="$(find "$BOOT_DIR" -type f -name "mt6789.dtb" | head -n 1)"
+          DTB="$(
+            find "$BOOT_DIR" \
+              -type f \
+              -name "mt6789.dtb" \
+              | head -n 1
+          )"
 
           test -n "$DTB"
 
@@ -993,7 +989,7 @@ jobs:
             release/mt6789.dtb
 
           echo
-          echo "=== COPY GTA9 EUR DTBO ==="
+          echo "=== GTA9 EUR DTBO ==="
 
           DTBO="$(
             find "$BOOT_DIR" \
@@ -1009,7 +1005,7 @@ jobs:
             release/mt8781_gta9_eur_open_00.dtbo
 
           echo
-          echo "=== COPY VMLINUX ==="
+          echo "=== VMLINUX ==="
 
           VMLINUX="$(
             find out \
@@ -1025,7 +1021,7 @@ jobs:
             release/vmlinux
 
           echo
-          echo "=== RELEASE FILES ==="
+          echo "=== RELEASE ==="
 
           ls -lh release
 
@@ -1054,7 +1050,7 @@ jobs:
 
 
       # ============================================================
-      # 21. DEBUG ARTIFACT IF BUILD FAILS
+      # 21. DEBUG ON FAILURE
       # ============================================================
       - name: Collect debug information
         if: failure()
@@ -1081,30 +1077,41 @@ jobs:
 
           echo
           echo "=== BUILD CONFIG ==="
-          sed -n '1,260p' out/build.config 2>/dev/null || true
+          sed -n '1,280p' \
+            out/build.config \
+            2>/dev/null || true
 
           echo
           echo "=== CLANG ==="
+
           "$PWD/build/build-tools/path/linux-x86/clang" \
-            --version 2>/dev/null || true
+            --version \
+            2>/dev/null || true
 
           echo
           echo "=== CLANG RESOURCE ==="
+
           echo "${CLANG_RESOURCE_DIR:-UNSET}"
 
           echo
-          echo "=== STDDEF ==="
+          echo "=== STDDEF.H ==="
+
           find "$CLANG_ROOT" \
             -type f \
             -name stddef.h \
-            -print 2>/dev/null || true
+            -print \
+            2>/dev/null || true
 
           echo
           echo "=== KERNELSU ==="
-          git -C KernelSU rev-parse HEAD 2>/dev/null || true
+
+          git -C KernelSU \
+            rev-parse HEAD \
+            2>/dev/null || true
 
           echo
           echo "=== KSU CONFIG ==="
+
           grep -R \
             "CONFIG_KSU" \
             kernel/configs \
@@ -1112,7 +1119,8 @@ jobs:
             2>/dev/null || true
 
           echo
-          echo "=== BUILD OUTPUTS ==="
+          echo "=== OUTPUTS ==="
+
           find out \
             -type f \
             \( \
@@ -1122,7 +1130,8 @@ jobs:
               -o -name "*.dtbo" \
               -o -name "vmlinux" \
             \) \
-            -print 2>/dev/null || true
+            -print \
+            2>/dev/null || true
 
 
       # ============================================================
