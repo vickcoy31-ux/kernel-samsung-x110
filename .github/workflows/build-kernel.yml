@@ -8,11 +8,10 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-
       # ============================================================
       # 1. INSTALL DEPENDENCIES
       # ============================================================
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           set -eux
 
@@ -22,41 +21,32 @@ jobs:
             bc \
             bison \
             build-essential \
+            ca-certificates \
             ccache \
-            clang \
+            curl \
             flex \
-            gcc \
-            g++ \
-            gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabi \
             git \
             libelf-dev \
             libssl-dev \
             lld \
             llvm \
-            make \
-            perl \
             python3 \
+            python3-distutils \
             python3-pip \
             rsync \
             unzip \
             wget \
             xz-utils \
-            zip \
-            device-tree-compiler
+            zip
 
-          echo "========================================"
-          echo "HOST ENVIRONMENT"
-          echo "========================================"
-
-          /usr/bin/gcc --version | head -1
-          /usr/bin/make --version | head -1
-          /usr/bin/uname -a
+          gcc --version
+          python3 --version
+          git --version
 
       # ============================================================
-      # 2. CLONE SOURCE
+      # 2. CHECKOUT SOURCE
       # ============================================================
-      - name: Clone Kernel Source
+      - name: Clone kernel source
         run: |
           set -eux
 
@@ -68,12 +58,18 @@ jobs:
 
           cd gta9
 
-          echo "========================================"
-          echo "SOURCE"
-          echo "========================================"
-
+          echo "=== SOURCE ROOT ==="
           pwd
-          git rev-parse --short HEAD
+
+          echo "=== SOURCE CONTENT ==="
+          ls -la
+
+          test -f Makefile
+          test -d arch
+          test -d drivers
+          test -f build.config.common
+          test -f build.config.mtk.aarch64
+          test -f arch/arm64/configs/gta9_00_defconfig
 
       # ============================================================
       # 3. KERNELSU
@@ -86,35 +82,47 @@ jobs:
           git submodule sync --recursive
           git submodule update --init --depth=1
 
-          echo "========================================"
-          echo "KERNELSU"
-          echo "========================================"
-
+          echo "=== KERNELSU ==="
           git -C KernelSU rev-parse HEAD
 
-          test -f KernelSU/kernel/Kconfig
+          test -d KernelSU/kernel
+          test -d KernelSU/manager
+          test -d KernelSU/scripts
 
-          grep -n CONFIG_KSU kernel/configs/ot11.config
+          echo "=== CONFIG_KSU ==="
+          grep -R "^CONFIG_KSU=" -n kernel/configs arch/arm64/configs 2>/dev/null || true
 
       # ============================================================
-      # 4. BUILD LAYOUT
+      # 4. BUILD LAYOUT COMPATIBILITY
       # ============================================================
-      - name: Prepare Build Layout
+      - name: Prepare build layout
         working-directory: gta9
         run: |
           set -eux
 
-          ln -s . kernel-5.10
-          ln -s setup/kernel/build build
+          # The original build infrastructure expects:
+          #   kernel-5.10/
+          #   build/
+          #
+          # But this repository itself is the kernel source tree.
 
-          test -f build/build.sh
+          if [ ! -e kernel-5.10 ]; then
+            ln -s . kernel-5.10
+          fi
 
-          echo "========================================"
-          echo "BUILD LAYOUT"
-          echo "========================================"
+          if [ ! -e build ]; then
+            ln -s setup/kernel/build build
+          fi
 
+          echo "=== BUILD LAYOUT ==="
           ls -ld kernel-5.10
           ls -ld build
+
+          test -f kernel-5.10/Makefile
+          test -f build/build.sh
+
+          echo "=== BUILD SCRIPT ==="
+          head -40 build/build.sh
 
       # ============================================================
       # 5. DOWNLOAD ANDROID CLANG R416183B
@@ -124,35 +132,71 @@ jobs:
         run: |
           set -eux
 
-          mkdir -p \
-            prebuilts-master/clang/host/linux-x86/clang-r416183b
+          CLANG_ROOT="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86"
+          CLANG_BIN="${CLANG_ROOT}/clang-r416183b/bin"
 
-          wget -q --show-progress \
-            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12L-gsi/clang-r416183b.tar.gz \
-            -O /tmp/clang-r416183b.tar.gz
+          mkdir -p "${CLANG_ROOT}"
+
+          curl -L --fail \
+            --retry 3 \
+            --retry-delay 5 \
+            -o /tmp/clang-r416183b.tar.gz \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12L-gsi/clang-r416183b.tar.gz"
+
+          rm -rf "${CLANG_ROOT}/clang-r416183b"
+
+          mkdir -p "${CLANG_ROOT}/clang-r416183b"
 
           tar -xzf \
             /tmp/clang-r416183b.tar.gz \
-            -C prebuilts-master/clang/host/linux-x86/clang-r416183b
+            -C "${CLANG_ROOT}/clang-r416183b"
 
-          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
+          echo "=== CLANG BIN DIRECTORY ==="
+          ls -la "${CLANG_BIN}"
 
-          echo "========================================"
-          echo "ANDROID CLANG"
-          echo "========================================"
+          echo "=== CLANG EXECUTABLES ==="
+          find "${CLANG_BIN}" -maxdepth 1 \
+            \( -type f -o -type l \) \
+            -printf '%M %p -> %l\n' \
+            | sort \
+            | grep -E 'clang|ld.lld' || true
 
-          test -x "${CLANG_BIN}/clang"
-          test -x "${CLANG_BIN}/clang++"
+          echo "=== CLANG FILES ==="
 
-          "${CLANG_BIN}/clang" --version
+          test -e "${CLANG_BIN}/clang"
+          test -e "${CLANG_BIN}/clang++"
+          test -e "${CLANG_BIN}/ld.lld"
+
+          # Do not assume clang.real exists yet.
+          # Print the actual archive layout first.
+          if [ -e "${CLANG_BIN}/clang.real" ]; then
+            echo "clang.real EXISTS"
+          else
+            echo "clang.real NOT FOUND IN ARCHIVE"
+          fi
+
+          if [ -e "${CLANG_BIN}/clang++.real" ]; then
+            echo "clang++.real EXISTS"
+          else
+            echo "clang++.real NOT FOUND IN ARCHIVE"
+          fi
+
+          echo "=== CLANG VERSION DIRECT ==="
+          "${CLANG_BIN}/clang" --version || true
+
+          echo "=== CLANG++ VERSION DIRECT ==="
+          "${CLANG_BIN}/clang++" --version || true
 
       # ============================================================
-      # 6. CONVERT PYTHON GENERATOR
+      # 6. CONVERT OLD PYTHON GENERATOR TO PYTHON 3
       # ============================================================
-      - name: Convert Build Config Generator
+      - name: Prepare build config generator
         working-directory: gta9
         run: |
           set -eux
+
+          cp scripts/gen_build_config.py \
+             scripts/gen_build_config.py.orig
 
           python3 -m lib2to3 \
             -w \
@@ -161,17 +205,17 @@ jobs:
           python3 -m py_compile \
             scripts/gen_build_config.py
 
+          echo "Generator conversion OK"
+
       # ============================================================
       # 7. GENERATE BUILD CONFIG
       # ============================================================
-      - name: Generate Build Config
+      - name: Generate build config
         working-directory: gta9
         run: |
           set -eux
 
           mkdir -p out
-
-          cd kernel-5.10
 
           python3 scripts/gen_build_config.py \
             --kernel-defconfig gta9_00_defconfig \
@@ -180,317 +224,318 @@ jobs:
             -m user \
             -o out/build.config
 
-          cd ..
+          echo "=== GENERATED BUILD CONFIG ==="
+          sed -n '1,240p' out/build.config
 
           test -f out/build.config
 
-          echo "========================================"
-          echo "BUILD CONFIG"
-          echo "========================================"
-
-          cat out/build.config
-
       # ============================================================
-      # 8. PATCH CLANG PATH
+      # 8. PATCH GENERATED CLANG PATH
       # ============================================================
-      - name: Patch Clang Path
+      - name: Patch Clang path
         working-directory: gta9
         run: |
           set -eux
 
-          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
+          CLANG_PREBUILT_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
-          if grep -q "^CLANG_PREBUILT_BIN=" out/build.config; then
+          test -d "${CLANG_PREBUILT_BIN}"
 
-            sed -i \
-              "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=${CLANG_BIN}#" \
-              out/build.config
+          sed -i \
+            "s#^CLANG_PREBUILT_BIN=.*#CLANG_PREBUILT_BIN=${CLANG_PREBUILT_BIN}#" \
+            out/build.config
 
-          else
-
-            echo "CLANG_PREBUILT_BIN=${CLANG_BIN}" \
-              >> out/build.config
-
+          if ! grep -q "^CLANG_PREBUILT_BIN=" out/build.config; then
+            echo "CLANG_PREBUILT_BIN=${CLANG_PREBUILT_BIN}" >> out/build.config
           fi
 
-          echo "========================================"
-          echo "CLANG CONFIG"
-          echo "========================================"
-
-          grep "CLANG_PREBUILT_BIN" out/build.config
+          echo "=== CLANG PATH IN BUILD CONFIG ==="
+          grep -n "CLANG_PREBUILT_BIN" out/build.config
 
       # ============================================================
-      # 9. VERIFY
+      # 9. VERIFY TOOLCHAIN
       # ============================================================
-      - name: Verify Build Environment
+      - name: Verify Clang toolchain
         working-directory: gta9
         run: |
           set -eux
-
-          test -f Makefile
-          test -d arch
-          test -d drivers
-          test -d scripts
-
-          test -f \
-            arch/arm64/configs/gta9_00_defconfig
-
-          test -f \
-            arch/arm64/boot/dts/samsung/mt8781_gta9wifi_eur_open_00.dts
-
-          test -d KernelSU
-          test -f KernelSU/kernel/Kconfig
-
-          test -f out/build.config
 
           CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
-          echo "========================================"
-          echo "ANDROID CLANG"
-          echo "========================================"
+          echo "=== TOOLCHAIN DIRECTORY ==="
+          ls -la "${CLANG_BIN}"
 
-          "${CLANG_BIN}/clang" --version
+          echo "=== REQUIRED TOOLS ==="
 
-          echo "========================================"
-          echo "CLANG RTLIB TEST"
-          echo "========================================"
+          test -x "${CLANG_BIN}/clang"
+          test -x "${CLANG_BIN}/clang++"
+          test -x "${CLANG_BIN}/ld.lld"
+
+          echo "clang:"
+          "${CLANG_BIN}/clang" --version || true
+
+          echo "clang++:"
+          "${CLANG_BIN}/clang++" --version || true
+
+          echo "ld.lld:"
+          "${CLANG_BIN}/ld.lld" --version || true
+
+          echo "=== HOST CLANG TEST ==="
+
+          cat > /tmp/host-clang-test.c <<'EOF'
+          #include <stdio.h>
+          int main(void) {
+              puts("HOST CLANG OK");
+              return 0;
+          }
+          EOF
 
           "${CLANG_BIN}/clang" \
-            --target=aarch64-linux-gnu \
-            --rtlib=compiler-rt \
-            -x c \
-            -c /dev/null \
-            -o /tmp/clang-test.o
-
-          echo "Clang compiler-rt flag: OK"
-
-          echo "========================================"
-          echo "KSU"
-          echo "========================================"
-
-          grep -n CONFIG_KSU kernel/configs/ot11.config
-
-      # ============================================================
-      # 10. BUILD
-      # ============================================================
-      - name: Build Kernel
-        working-directory: gta9
-        run: |
-          set -eux
-
-          # --------------------------------------------------------
-          # TARGET
-          # --------------------------------------------------------
-
-          export ARCH=arm64
-
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
-
-          export LLVM=1
-          export LLVM_IAS=1
-
-          export OUT_DIR="${GITHUB_WORKSPACE}/gta9/out"
-          export DIST_DIR="${GITHUB_WORKSPACE}/gta9/out"
-
-          export BUILD_CONFIG="out/build.config"
-
-          # --------------------------------------------------------
-          # ANDROID CLANG
-          # --------------------------------------------------------
-
-          export CLANG_PREBUILT_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
-
-          export PATH="${CLANG_PREBUILT_BIN}:${PATH}"
-
-          # --------------------------------------------------------
-          # IMPORTANT:
-          #
-          # Host programs such as fixdep must use Clang because
-          # this kernel build passes Clang-specific flags including
-          # --rtlib=compiler-rt.
-          # --------------------------------------------------------
-
-          export HOSTCC="${CLANG_PREBUILT_BIN}/clang"
-          export HOSTCXX="${CLANG_PREBUILT_BIN}/clang++"
-          export HOSTAR=/usr/bin/ar
-          export HOSTLD="${CLANG_PREBUILT_BIN}/ld.lld"
-
-          echo "========================================"
-          echo "COMPILERS"
-          echo "========================================"
-
-          echo "HOSTCC=${HOSTCC}"
-          echo "HOSTCXX=${HOSTCXX}"
-          echo "HOSTAR=${HOSTAR}"
-          echo "HOSTLD=${HOSTLD}"
-
-          "${HOSTCC}" --version
-          "${HOSTCXX}" --version
-
-          echo "========================================"
-          echo "HOST CLANG RTLIB"
-          echo "========================================"
-
-          echo 'int main(void) { return 0; }' \
-            > /tmp/host-clang-test.c
-
-          "${HOSTCC}" \
             --rtlib=compiler-rt \
             /tmp/host-clang-test.c \
             -o /tmp/host-clang-test
 
-          /tmp/host-clang-test || true
+          /tmp/host-clang-test
 
-          echo "Host Clang compiler-rt: OK"
-
-          # --------------------------------------------------------
-          # INTERNAL BUILD.SH TOOLS
-          # --------------------------------------------------------
-
-          echo "========================================"
-          echo "PREPARING BUILD TOOLS"
-          echo "========================================"
+      # ============================================================
+      # 10. PREPARE INTERNAL BUILD TOOLS
+      # ============================================================
+      - name: Prepare internal build tools
+        working-directory: gta9
+        run: |
+          set -eux
 
           BUILD_TOOLS_DIR="${GITHUB_WORKSPACE}/gta9/build/build-tools/path/linux-x86"
+          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
 
           mkdir -p "${BUILD_TOOLS_DIR}"
 
-          for cmd in \
-            uname \
-            nproc \
-            readlink \
-            rm \
-            mkdir \
-            cp \
-            mv \
-            ln \
-            make \
-            gcc \
-            g++ \
-            ar \
-            as \
-            ld \
-            objcopy \
-            objdump \
-            strip \
-            ranlib \
-            nm \
-            addr2line \
-            strings \
-            c++filt \
-            cat \
-            chmod \
-            chown \
-            dirname \
-            basename \
-            grep \
-            egrep \
-            fgrep \
-            sed \
-            awk \
-            find \
-            sort \
-            uniq \
-            cut \
-            tr \
-            head \
-            tail \
-            touch \
-            stat \
-            printf \
-            pwd \
-            realpath \
-            which \
-            env \
-            tee \
-            xargs \
-            expr \
-            date \
-            sleep \
-            diff \
-            cmp \
-            du \
-            df \
-            tar \
-            gzip \
-            gunzip \
-            xz \
-            unzip \
-            zip \
-            rsync \
-            git \
-            perl \
-            python3 \
-            bc \
-            flex \
-            bison \
-            dtc \
-            file
+          echo "=== BUILD TOOLS BEFORE ==="
+          ls -la "${BUILD_TOOLS_DIR}" || true
+
+          # --------------------------------------------------------
+          # IMPORTANT:
+          #
+          # Android clang may be a wrapper that expects companion
+          # clang.real / clang++.real relative to itself.
+          #
+          # Therefore copy the actual Clang directory contents rather
+          # than creating only a single clang -> clang symlink.
+          # --------------------------------------------------------
+
+          for tool in \
+            clang \
+            clang++ \
+            clang.real \
+            clang++.real \
+            clang-12 \
+            clang++-12 \
+            ld.lld
           do
+            if [ -e "${CLANG_BIN}/${tool}" ]; then
+              rm -f "${BUILD_TOOLS_DIR}/${tool}"
 
-            if [ -x "/usr/bin/${cmd}" ]; then
+              cp -a \
+                "${CLANG_BIN}/${tool}" \
+                "${BUILD_TOOLS_DIR}/${tool}"
 
-              ln -sf \
-                "/usr/bin/${cmd}" \
-                "${BUILD_TOOLS_DIR}/${cmd}"
-
-            elif [ -x "/bin/${cmd}" ]; then
-
-              ln -sf \
-                "/bin/${cmd}" \
-                "${BUILD_TOOLS_DIR}/${cmd}"
-
+              echo "Installed ${tool}"
             else
-
-              echo "WARNING: ${cmd} not found"
-
+              echo "Optional tool not present: ${tool}"
             fi
-
           done
 
+          echo "=== BUILD TOOLS AFTER CLANG INSTALL ==="
+          ls -la "${BUILD_TOOLS_DIR}"
+
           # --------------------------------------------------------
-          # Make Clang binaries available to build.sh's PATH.
+          # Normal host tools
           # --------------------------------------------------------
 
-          ln -sf \
-            "${CLANG_PREBUILT_BIN}/clang" \
-            "${BUILD_TOOLS_DIR}/clang"
+          for tool in \
+            awk \
+            basename \
+            bash \
+            cat \
+            chmod \
+            cp \
+            cut \
+            dirname \
+            echo \
+            env \
+            find \
+            grep \
+            head \
+            install \
+            ln \
+            mkdir \
+            mktemp \
+            mv \
+            nproc \
+            printf \
+            pwd \
+            readlink \
+            rm \
+            sed \
+            sort \
+            stat \
+            tail \
+            tar \
+            test \
+            tr \
+            uname \
+            xargs \
+            zip
+          do
+            TOOL_PATH="$(command -v "${tool}")"
 
-          ln -sf \
-            "${CLANG_PREBUILT_BIN}/clang++" \
-            "${BUILD_TOOLS_DIR}/clang++"
+            if [ -n "${TOOL_PATH}" ]; then
+              ln -sf "${TOOL_PATH}" "${BUILD_TOOLS_DIR}/${tool}"
+            fi
+          done
 
-          ln -sf \
-            "${CLANG_PREBUILT_BIN}/ld.lld" \
-            "${BUILD_TOOLS_DIR}/ld.lld"
+          # Host archive/linker tools
+          ln -sf /usr/bin/ar "${BUILD_TOOLS_DIR}/ar" || true
+          ln -sf /usr/bin/ranlib "${BUILD_TOOLS_DIR}/ranlib" || true
+          ln -sf /usr/bin/strip "${BUILD_TOOLS_DIR}/strip" || true
+
+          echo "=== INTERNAL TOOLS FINAL ==="
+          ls -la "${BUILD_TOOLS_DIR}"
+
+      # ============================================================
+      # 11. VERIFY INTERNAL CLANG WRAPPER
+      # ============================================================
+      - name: Verify internal Clang
+        working-directory: gta9
+        run: |
+          set -eux
+
+          BUILD_TOOLS_DIR="${GITHUB_WORKSPACE}/gta9/build/build-tools/path/linux-x86"
 
           echo "========================================"
           echo "INTERNAL TOOLS"
           echo "========================================"
 
-          test -x "${BUILD_TOOLS_DIR}/uname"
           test -x "${BUILD_TOOLS_DIR}/make"
           test -x "${BUILD_TOOLS_DIR}/clang"
           test -x "${BUILD_TOOLS_DIR}/clang++"
           test -x "${BUILD_TOOLS_DIR}/ld.lld"
 
+          echo
+          echo "=== CLANG WRAPPER ==="
+          ls -la "${BUILD_TOOLS_DIR}/clang"
+
+          echo
+          echo "=== CLANG REAL ==="
+          if [ -e "${BUILD_TOOLS_DIR}/clang.real" ]; then
+            ls -la "${BUILD_TOOLS_DIR}/clang.real"
+          else
+            echo "clang.real is NOT present"
+          fi
+
+          echo
+          echo "=== CLANG++ WRAPPER ==="
+          ls -la "${BUILD_TOOLS_DIR}/clang++"
+
+          echo
+          echo "=== CLANG++ REAL ==="
+          if [ -e "${BUILD_TOOLS_DIR}/clang++.real" ]; then
+            ls -la "${BUILD_TOOLS_DIR}/clang++.real"
+          else
+            echo "clang++.real is NOT present"
+          fi
+
+          echo
+          echo "=== INTERNAL CLANG VERSION ==="
           "${BUILD_TOOLS_DIR}/clang" --version
-          "${BUILD_TOOLS_DIR}/make" --version | head -1
+
+          echo
+          echo "=== INTERNAL CLANG++ VERSION ==="
+          "${BUILD_TOOLS_DIR}/clang++" --version
+
+          echo
+          echo "=== INTERNAL HOST CLANG TEST ==="
+
+          cat > /tmp/internal-clang-test.c <<'EOF'
+          #include <stdio.h>
+
+          int main(void) {
+              puts("INTERNAL CLANG OK");
+              return 0;
+          }
+          EOF
+
+          "${BUILD_TOOLS_DIR}/clang" \
+            --rtlib=compiler-rt \
+            /tmp/internal-clang-test.c \
+            -o /tmp/internal-clang-test
+
+          /tmp/internal-clang-test
+
+          echo
+          echo "========================================"
+          echo "INTERNAL CLANG TOOLCHAIN OK"
+          echo "========================================"
+
+      # ============================================================
+      # 12. BUILD KERNEL
+      # ============================================================
+      - name: Build kernel
+        working-directory: gta9
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+          CROSS_COMPILE_COMPAT: arm-linux-gnueabi-
+          LLVM: "1"
+          LLVM_IAS: "1"
+        run: |
+          set -eux
+
+          CLANG_BIN="${GITHUB_WORKSPACE}/gta9/prebuilts-master/clang/host/linux-x86/clang-r416183b/bin"
+
+          export PATH="${CLANG_BIN}:${PATH}"
+
+          export HOSTCC="${CLANG_BIN}/clang"
+          export HOSTCXX="${CLANG_BIN}/clang++"
+          export HOSTAR="/usr/bin/ar"
+          export HOSTLD="${CLANG_BIN}/ld.lld"
+
+          export BUILD_CONFIG="${GITHUB_WORKSPACE}/gta9/out/build.config"
+          export OUT_DIR="${GITHUB_WORKSPACE}/gta9/out"
+          export DIST_DIR="${GITHUB_WORKSPACE}/gta9/out/dist"
+
+          mkdir -p "${OUT_DIR}"
+          mkdir -p "${DIST_DIR}"
 
           echo "========================================"
-          echo "BUILD CONFIG"
+          echo "BUILD ENVIRONMENT"
           echo "========================================"
 
-          test -f "${BUILD_CONFIG}"
+          echo "ARCH=${ARCH}"
+          echo "CROSS_COMPILE=${CROSS_COMPILE}"
+          echo "CROSS_COMPILE_COMPAT=${CROSS_COMPILE_COMPAT}"
+          echo "HOSTCC=${HOSTCC}"
+          echo "HOSTCXX=${HOSTCXX}"
+          echo "HOSTAR=${HOSTAR}"
+          echo "HOSTLD=${HOSTLD}"
+          echo "BUILD_CONFIG=${BUILD_CONFIG}"
+          echo "OUT_DIR=${OUT_DIR}"
+          echo "DIST_DIR=${DIST_DIR}"
 
-          grep -n \
-            "KERNEL_DIR\|KERNEL_DEFCONFIG_FILE\|BUILD_CONFIG_FRAGMENTS\|CLANG_PREBUILT_BIN" \
-            "${BUILD_CONFIG}"
+          echo
+          echo "=== HOST CLANG ==="
+          "${HOSTCC}" --version
 
-          echo "========================================"
-          echo "STARTING KERNEL BUILD"
-          echo "========================================"
+          echo
+          echo "=== HOST CLANG++ ==="
+          "${HOSTCXX}" --version
+
+          echo
+          echo "=== HOST LLD ==="
+          "${HOSTLD}" --version
+
+          echo
+          echo "=== START KERNEL BUILD ==="
 
           ./build/build.sh \
             HOSTCC="${HOSTCC}" \
@@ -502,57 +547,46 @@ jobs:
             -j"$(nproc)"
 
       # ============================================================
-      # 11. INSPECT OUTPUT
+      # 13. INSPECT BUILD OUTPUT
       # ============================================================
-      - name: Inspect Build Output
+      - name: Inspect build output
         if: always()
         working-directory: gta9
         run: |
           set +e
 
           echo "========================================"
-          echo "OUT DIRECTORY"
+          echo "BUILD OUTPUT"
           echo "========================================"
 
           find out \
-            -maxdepth 6 \
-            -type f \
-            -printf '%p %k KB\n' \
-            2>/dev/null \
-            | sort || true
-
-          echo "========================================"
-          echo "KERNEL IMAGES"
-          echo "========================================"
-
-          find . \
+            -maxdepth 7 \
             -type f \
             \( \
-              -name "Image" \
-              -o -name "Image.gz" \
-              -o -name "Image.gz-dtb" \
-              -o -name "*.dtb" \
-              -o -name "*.dtbo" \
+              -name 'Image' \
+              -o -name 'Image.gz' \
+              -o -name '*.dtb' \
+              -o -name '*.dtbo' \
+              -o -name 'vmlinux' \
             \) \
-            -print \
-            2>/dev/null \
-            | sort || true
+            -print 2>/dev/null \
+            | sort
 
+          echo
           echo "========================================"
-          echo "VMLINUX"
+          echo "DIST OUTPUT"
           echo "========================================"
 
-          find . \
+          find out/dist \
+            -maxdepth 5 \
             -type f \
-            -name "vmlinux" \
-            -print \
-            2>/dev/null \
-            | sort || true
+            -print 2>/dev/null \
+            | sort
 
       # ============================================================
-      # 12. PREPARE RELEASE
+      # 14. PREPARE RELEASE ARTIFACTS
       # ============================================================
-      - name: Prepare Artifacts
+      - name: Prepare release artifacts
         if: success()
         working-directory: gta9
         run: |
@@ -560,75 +594,106 @@ jobs:
 
           mkdir -p release
 
-          echo "========================================"
-          echo "SEARCHING OUTPUT"
-          echo "========================================"
+          echo "=== FIND KERNEL OUTPUTS ==="
 
-          find out \
-            -type f \
-            \( \
-              -name "Image" \
-              -o -name "Image.gz" \
-              -o -name "Image.gz-dtb" \
-              -o -name "*.dtb" \
-              -o -name "*.dtbo" \
-            \) \
-            -print
+          IMAGE="$(find out -type f -name 'Image' | head -1)"
+          IMAGE_GZ="$(find out -type f -name 'Image.gz' | head -1)"
+          DTB="$(find out -type f -name 'mt6789.dtb' | head -1)"
+          DTBO="$(find out -type f -name 'mt8781_gta9_eur_open_00.dtbo' | head -1)"
 
-          if [ -f out/kernel-5.10/arch/arm64/boot/Image.gz ]; then
-            cp \
-              out/kernel-5.10/arch/arm64/boot/Image.gz \
-              release/Image.gz
-          elif [ -f out/kernel-5.10/arch/arm64/boot/Image ]; then
-            cp \
-              out/kernel-5.10/arch/arm64/boot/Image \
-              release/Image
+          echo "IMAGE=${IMAGE}"
+          echo "IMAGE_GZ=${IMAGE_GZ}"
+          echo "DTB=${DTB}"
+          echo "DTBO=${DTBO}"
+
+          if [ -n "${IMAGE}" ] && [ -f "${IMAGE}" ]; then
+            cp "${IMAGE}" release/Image
           fi
 
-          if [ -f out/kernel-5.10/arch/arm64/boot/dts/mediatek/mt6789.dtb ]; then
-            cp \
-              out/kernel-5.10/arch/arm64/boot/dts/mediatek/mt6789.dtb \
-              release/mt6789.dtb
+          if [ -n "${IMAGE_GZ}" ] && [ -f "${IMAGE_GZ}" ]; then
+            cp "${IMAGE_GZ}" release/Image.gz
           fi
 
-          if [ -f out/kernel-5.10/arch/arm64/boot/dts/mediatek/mt8781_gta9_eur_open_00.dtbo ]; then
-            cp \
-              out/kernel-5.10/arch/arm64/boot/dts/mediatek/mt8781_gta9_eur_open_00.dtbo \
-              release/mt8781_gta9_eur_open_00.dtbo
+          if [ -n "${DTB}" ] && [ -f "${DTB}" ]; then
+            cp "${DTB}" release/mt6789.dtb
           fi
 
-          echo "========================================"
-          echo "RELEASE"
-          echo "========================================"
+          if [ -n "${DTBO}" ] && [ -f "${DTBO}" ]; then
+            cp "${DTBO}" release/mt8781_gta9_eur_open_00.dtbo
+          fi
 
+          echo
+          echo "=== RELEASE ==="
           ls -lah release
 
-          test "$(find release -type f | wc -l)" -gt 0
+          test -n "$(find release -type f -print -quit)"
 
       # ============================================================
-      # 13. UPLOAD KERNEL
+      # 15. UPLOAD SUCCESS ARTIFACTS
       # ============================================================
-      - name: Upload Kernel Artifacts
+      - name: Upload kernel artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: galaxy-tab-a9-x110-kernel
+          name: gta9-x110-kernel
           path: gta9/release/
           if-no-files-found: error
-          retention-days: 7
 
       # ============================================================
-      # 14. DEBUG CONFIG ONLY ON FAILURE
+      # 16. UPLOAD DEBUG INFORMATION ON FAILURE
       # ============================================================
-      - name: Upload Debug Config
+      - name: Prepare debug artifacts
+        if: failure()
+        working-directory: gta9
+        run: |
+          set +e
+
+          mkdir -p debug
+
+          cp -f out/build.config \
+            debug/build.config 2>/dev/null || true
+
+          find build/build-tools/path/linux-x86 \
+            -maxdepth 1 \
+            \( \
+              -name 'clang' \
+              -o -name 'clang.real' \
+              -o -name 'clang++' \
+              -o -name 'clang++.real' \
+              -o -name 'clang-12' \
+              -o -name 'ld.lld' \
+            \) \
+            -exec ls -la {} \; \
+            > debug/internal-tools.txt 2>&1 || true
+
+          {
+            echo "=== CLANG ARCHIVE ==="
+            ls -la prebuilts-master/clang/host/linux-x86/clang-r416183b/bin \
+              2>/dev/null || true
+
+            echo
+            echo "=== INTERNAL TOOLS ==="
+            ls -la build/build-tools/path/linux-x86 \
+              2>/dev/null || true
+
+            echo
+            echo "=== BUILD CONFIG ==="
+            grep -nE \
+              'CLANG_PREBUILT_BIN|KERNEL_DIR|BUILD_CONFIG|OUT_DIR|DIST_DIR' \
+              out/build.config \
+              2>/dev/null || true
+          } > debug/toolchain-layout.txt
+
+          echo "=== DEBUG FILES ==="
+          find debug -type f -maxdepth 2 -print
+
+      # ============================================================
+      # 17. UPLOAD DEBUG ARTIFACTS
+      # ============================================================
+      - name: Upload debug artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: galaxy-tab-a9-x110-debug
-          path: |
-            gta9/out/build.config
-            gta9/out/build.config.gki.aarch64
-            gta9/out/build.config.mtk
-            gta9/out/gta9_00.config
+          name: gta9-x110-build-debug
+          path: gta9/debug/
           if-no-files-found: warn
-          retention-days: 3
